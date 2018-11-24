@@ -84,6 +84,7 @@ void insertAlias(AliasElement **header, char fakeCmd[255], char realCmd[255])
         temp = *header;
         // iterate it until the last node
         while (temp->next != NULL) {
+	    // TODO while inserting aliased command, if its already in the linkedlist, update the node
             temp = temp->next;
         }
         // add new node into last
@@ -397,7 +398,7 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[],
 		break;
             case '\n':                 /* should be the final char examined */
 		if (start != -1){
-                    args[ct] = &inputBuffer[start];     
+                    args[ct] = &inputBuffer[start];    
 		    ct++;
 		}
                 inputBuffer[i] = '\0';
@@ -427,7 +428,6 @@ int main(void)
 	    memset(userEnteredInput, '\0', sizeof(userEnteredInput));
             int background; /* equals 1 if a command is followed by '&' */
             char *args[MAX_LINE/2 + 1]; /*command line arguments */
-	    insertAlias(&aliasLL,"list","ls");
             while (1){
                         background = 0;
                         printf("myshell: ");
@@ -443,7 +443,6 @@ int main(void)
                         otherwise it will invoke the setup() function again. */
 
 			int argumentSize = argSize(args); // parse by ' ', '\t'
-			printf("arg size: %d\n", argumentSize);
 			int cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
 			// ******* ALIAS DETECTION AND HANDLING START ********* 
@@ -459,12 +458,21 @@ int main(void)
 				}
 			}
 			if (hasAlias == 1) {
-				strcpy(inputBuffer,arrToStr(args,argumentSize,0)); // convert the new argument array to charArray(so string) and store it on inputBuffer
-				printf("inputBuffer is: %s\n",inputBuffer); // TODO XXX inputBuffer is correct but *args[] double arr contains problems FIX IT
+				char *newInputBuffer = arrToStr(args,argumentSize,0); // convert the new argument array to charArray(so string)
+				int sizeOfNewInputBuffer = strlen(newInputBuffer);
+				char *tempStr = (char *) malloc(sizeof(char) * (sizeOfNewInputBuffer + 2)); // +1 for \n and +1 for \0
+				strcpy(inputBuffer,newInputBuffer); // and store that charArray/string in inputBuffer
+				inputBuffer[sizeOfNewInputBuffer] = '\n'; // put \n for looking like real user entered input
+				inputBuffer[sizeOfNewInputBuffer + 1] = '\0'; // put termination-char to make it C-string
 				setup(inputBuffer, args, &background, userEnteredInput, 1); // pass that string to setup() func again
 			}
-			// ******* ALIAS DETECTION AND HANDLING END ********* 
+			// ******* ALIAS DETECTION AND HANDLING END *********
 
+			// update argumentSize and cmdSize again (after handling aliased commands) 
+			argumentSize = argSize(args); // parse by ' ', '\t'
+			cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
+
+			/************ START EXECUTION STAGE OF COMMANDS ******/
 			if (cmdSize == 1) { // it means we have only single command(command can be single-arg or multi-arg)
 				if (argumentSize == 1) {
 					//it means we have single-arg single command (e.g "exit", "clear" etc.)
@@ -472,7 +480,7 @@ int main(void)
 						// TODO call System("clr");
 					} else if (!strcmp(args[0], "exit")) {
 						// TODO call System("exit");
-						
+						printf("exit called\n");
 					} else {
 						// TODO other commands, bridge it to exec function
 					}
