@@ -288,6 +288,7 @@ char *arrToStr(char *args[], int size, int index) {
             }
         }
         char *retStr = (char *) malloc(sizeof(char) * strlen(tempStr));
+	memset(retStr,'\0',sizeof(retStr));
         strcpy(retStr,tempStr);
         return retStr;
     }
@@ -345,7 +346,7 @@ in the next command line; separate it into distinct arguments (using blanks as
 delimiters), and set the args array entries to point to the beginning of what
 will become null-terminated, C-style strings. */
 
-void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[])
+void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[], int isStrSupplied)
 {
     int length, /* # of characters in the command line */
         i,      /* loop index for accessing inputBuffer array */
@@ -354,8 +355,13 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[])
     
     ct = 0;
         
+    if (isStrSupplied == 1) {
+	// process supplied string
+	length = strlen(inputBuffer);
+    } else {
     /* read what the user enters on the command line */
-    length = read(STDIN_FILENO,inputBuffer,MAX_LINE);  
+	length = read(STDIN_FILENO,inputBuffer,MAX_LINE);  
+    }
 
     /* 0 is the system predefined file descriptor for stdin (standard input),
        which is the user's screen in this case. inputBuffer by itself is the
@@ -378,9 +384,8 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[])
 
     strcpy(copyOfInput,inputBuffer);
 
-    for (i=0;i<length;i++){ /* examine every character in the inputBuffer */
-
-        switch (inputBuffer[i]){
+    for (i = 0; i < length; i++) { /* examine every character in the inputBuffer */
+        switch (inputBuffer[i]) {
 	    case ' ':
 	    case '\t' :               /* argument separators */
 		if(start != -1){
@@ -390,7 +395,6 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[])
                 inputBuffer[i] = '\0'; /* add a null char; make a C string */
 		start = -1;
 		break;
-
             case '\n':                 /* should be the final char examined */
 		if (start != -1){
                     args[ct] = &inputBuffer[start];     
@@ -399,7 +403,6 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[])
                 inputBuffer[i] = '\0';
                 args[ct] = NULL; /* no more arguments to this command */
 		break;
-
 	    default :             /* some other character */
 		if (start == -1)
 		    start = i;
@@ -411,50 +414,76 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[])
      }    /* end of for */
      args[ct] = NULL; /* just in case the input line was > 80 */
 
-	for (i = 0; i <= ct; i++)
-		printf("args %d = %s\n",i,args[i]);
+     for (i = 0; i <= ct; i++)
+	printf("args %d = %s\n",i,args[i]);
+
 } /* end of setup routine */
  
 int main(void)
 {
+	    AliasElement *test1;
             char inputBuffer[MAX_LINE]; /*buffer to hold command entered */
             char userEnteredInput[255];
 	    memset(userEnteredInput, '\0', sizeof(userEnteredInput));
             int background; /* equals 1 if a command is followed by '&' */
             char *args[MAX_LINE/2 + 1]; /*command line arguments */
+	    insertAlias(&aliasLL,"list","ls");
             while (1){
                         background = 0;
                         printf("myshell: ");
 			fflush(stdout);
                         /*setup() calls exit() when Control-D is entered */
 			fflush(stdin);
-                        setup(inputBuffer, args, &background, userEnteredInput);
+                        setup(inputBuffer, args, &background, userEnteredInput, 0);
  			fflush(stdin);
                         /** the steps are:
                         (1) fork a child process using fork()
                         (2) the child process will invoke execv()
 						(3) if background == 0, the parent will wait,
                         otherwise it will invoke the setup() function again. */
-			// TODO add check if & is the LAST arg, if it is not then print error message
-			int argumentSize = argSize(args);
-			int cmdSize = commandSize(args, argumentSize);
+
+			int argumentSize = argSize(args); // parse by ' ', '\t'
+			printf("arg size: %d\n", argumentSize);
+			int cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
+
+			// ******* ALIAS DETECTION AND HANDLING START ********* 
+			int hasAlias = 0;
+			for (int i = 0; i < argumentSize; i++) {
+				test1 = aliasLL;
+				while (test1 != NULL) {
+					if (!strcmp(args[i], test1->fakeCmd)) {
+						strcpy(args[i], test1->realCmd); // replace fakeCmd with the realCmd in argument array
+						hasAlias = 1;
+					}
+					test1 = test1->next;
+				}
+			}
+			if (hasAlias == 1) {
+				strcpy(inputBuffer,arrToStr(args,argumentSize,0)); // convert the new argument array to charArray(so string) and store it on inputBuffer
+				printf("inputBuffer is: %s\n",inputBuffer); // TODO XXX inputBuffer is correct but *args[] double arr contains problems FIX IT
+				setup(inputBuffer, args, &background, userEnteredInput, 1); // pass that string to setup() func again
+			}
+			// ******* ALIAS DETECTION AND HANDLING END ********* 
+
 			if (cmdSize == 1) { // it means we have only single command(command can be single-arg or multi-arg)
-				if (argumentSize = 1) {
+				if (argumentSize == 1) {
 					//it means we have single-arg single command (e.g "exit", "clear" etc.)
 					if (!strcmp(args[0], "clr")) {
 						// TODO call System("clr");
 					} else if (!strcmp(args[0], "exit")) {
 						// TODO call System("exit");
+						
 					} else {
 						// TODO other commands, bridge it to exec function
 					}
 				} else {
 					//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
-					// TODO we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>') so we DONT NEED any pipe or redeirect, so jsut bridge it to exec function
+					// TODO we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>') so we DONT NEED any pipe or redirect, so just bridge it to exec function
 				}
-			} else if (cmdSize == 1) {
+			} else if (cmdSize == 2) {
 				// it means we have exactly 1 delimiter('<', '>', '|', '>>', '2>') so piping/duping is required
 				// TODO we NEED piping or redirecting
+				
 			} else {
 				// it means we have more than 1 delimiter('<', '>', '|', '>>', '2>') so piping/duping is required
 				// TODO we NEED piping or redirecting
