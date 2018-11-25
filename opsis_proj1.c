@@ -328,6 +328,7 @@ int argSize(char *args[]) {
 	int count = 0;
 	while(args[count++] != NULL){
 	}
+	printf("cnt: %d\n",count);
 	return count - 1;
 }
 
@@ -443,6 +444,7 @@ int main(void)
                         otherwise it will invoke the setup() function again. */
 
 			int argumentSize = argSize(args); // parse by ' ', '\t'
+			printf("arg size: %d\n",argumentSize);
 			int cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
 			// ******* ALIAS DETECTION AND HANDLING START ********* 
@@ -473,28 +475,48 @@ int main(void)
 			cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
 			/************ START EXECUTION STAGE OF COMMANDS ******/
-			if (cmdSize == 1) { // it means we have only single command(command can be single-arg or multi-arg)
-				if (argumentSize == 1) {
-					//it means we have single-arg single command (e.g "exit", "clear" etc.)
-					if (!strcmp(args[0], "clr")) {
-						// TODO call System("clr");
-					} else if (!strcmp(args[0], "exit")) {
-						// TODO call System("exit");
-						printf("exit called\n");
+			if (argumentSize >= 1) {
+				if (!strcmp(args[0],"alias")) {
+					if (!strcmp(args[1],"-l")) {
+						// TODO list all aliased cmds
 					} else {
-						// TODO other commands, bridge it to exec function
+						// TODO inserAlias()
+					}
+				} else if (!strcmp(args[0],"unalias")) {
+					if (args[1] != NULL) {
+						// TODO removeAlias(args[1])
 					}
 				} else {
-					//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
-					// TODO we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>') so we DONT NEED any pipe or redirect, so just bridge it to exec function
+					if (cmdSize == 1) { // it means we have only single command(command can be single-arg or multi-arg)
+						if (argumentSize == 1) {
+							//it means we have single-arg single command (e.g "exit", "clear" etc.)
+							if (!strcmp(args[0], "clr")) {
+								// TODO call System("clr");
+							} else if (!strcmp(args[0], "exit")) {
+								// TODO call System("exit");
+							} else if (!strcmp(args[0], "fg")) {
+								// TODO make background process foreground (one-by-one)
+							} else {
+								// TODO other commands, bridge it to exec function
+							}
+						} else {
+							//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
+							/* TODO we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>')
+							 so we DONT NEED any pipe or redirect, 
+							so just bridge it to exec function */
+						}
+					} else if (cmdSize == 2) {
+						// it means we have exactly 1 delimiter('<', '>', '|', '>>', '2>') so piping/duping is required
+						// TODO we NEED piping or redirecting
+						
+					} else {
+						/* it means we have more than 1 delimiter('<', '>', '|', '>>', '2>') 
+						so piping/duping is required */
+						// TODO we NEED piping or redirecting
+					}
 				}
-			} else if (cmdSize == 2) {
-				// it means we have exactly 1 delimiter('<', '>', '|', '>>', '2>') so piping/duping is required
-				// TODO we NEED piping or redirecting
-				
 			} else {
-				// it means we have more than 1 delimiter('<', '>', '|', '>>', '2>') so piping/duping is required
-				// TODO we NEED piping or redirecting
+				// TODO empty command, handle it
 			}
             }
 }
