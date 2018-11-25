@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <unistd.h>
@@ -16,7 +15,7 @@
 #define MAX_LINE 80 /* 80 chars per line, per command, should be enough. */
 
 struct arrToken {
-    char elements[255][80];
+    char *elements[80];
     int elementsSize;
 };
 
@@ -298,6 +297,9 @@ char *arrToStr(char *args[], int size, int index) {
 
 struct arrToken strToArr(char *cmdStr) {
     struct arrToken retArr;
+    for (int f = 0; f < 80; f++) {
+	retArr.elements[f] = NULL; // NULL-ify all the elements of array (initialization)
+    }
     char separatedArg[255];
     memset(separatedArg,'\0', sizeof(separatedArg));
     int j = 0;
@@ -306,6 +308,7 @@ struct arrToken strToArr(char *cmdStr) {
         switch (cmdStr[i]) {
             case ' ':
             case '\t':               /* argument separators */
+		retArr.elements[argCount] = (char *) malloc(sizeof(char) * 255); // alloc 255*char space for storing string
                 strcpy(retArr.elements[argCount++],separatedArg);
                 memset(separatedArg,'\0', sizeof(separatedArg)); // clear
                 j = 0;
@@ -313,6 +316,7 @@ struct arrToken strToArr(char *cmdStr) {
             default:
                 separatedArg[j++] = cmdStr[i];
                 if (i == (strlen(cmdStr) - 1)) {
+                    retArr.elements[argCount] = (char *) malloc(sizeof(char) * 255); // alloc 255*char space for storing string
                     strcpy(retArr.elements[argCount++],separatedArg);
                     memset(separatedArg,'\0', sizeof(separatedArg)); // clear
                     j = 0;
@@ -341,6 +345,96 @@ int commandSize(char *args[], int argsSize) {
 		}
 	}
 	return count;
+}
+
+#define CREATE_FLAG_OW (O_RDWR | O_CREAT | O_TRUNC) // overwrite
+#define CREATE_FLAG_AD (O_RDWR | O_CREAT | O_APPEND) // append
+#define CREATE_MODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH) 
+/****
+ 0 for READING MODE
+ 1 for WRITE-OVERWRITE MODE
+ 2 for WRITE-APPEND MODE
+ 
+ XXX DO NOT FORGET TO CLOSE RETURNED FILE DESCRIPTOR FROM THIS FUNCTION AFTER DUPLICATING IT WITH dup2()
+  ****/
+int openFile(char *filePath, int openingType) {
+	int fd = -1; // same as original open() func, it returns -1 as error by default
+	if (openingType == 0) {
+		// open file in "read" mode
+		fd = open(filePath, O_RDWR, CREATE_MODE);
+	} else if (openingType == 1) {
+		// open file in "write-overwrite" mode
+		fd = open(filePath, CREATE_FLAG_OW, CREATE_MODE);
+	} else {
+		// open file in "write-append" mode
+		fd = open(filePath, CREATE_FLAG_AD, CREATE_MODE);
+	}
+	return fd;
+}
+
+void list_aliased_cmds() {
+    AliasElement *test;
+    test = aliasLL;
+    while (test != NULL) {
+        printf("Aliased cmd: %s Equivalent cmd: %s\n",test->fakeCmd, test->realCmd);
+        test = test->next;
+    }
+}
+
+void executeCmd(struct arrToken arrtok) {
+	char binaryName[255];
+	memset(binaryName,'\0',sizeof(binaryName));
+	strcpy(binaryName, arrtok.elements[0]); // get binary name which will be executed
+	
+	// find that binary's path
+	char *binaryPath = hasCmd(binaryName);
+	if (binaryPath != NULL) {
+		// execute it 
+		execl(binaryPath, binaryName, arrtok.elements[1], arrtok.elements[2], 
+						arrtok.elements[3], arrtok.elements[4],
+						arrtok.elements[5], arrtok.elements[6],
+						arrtok.elements[7], arrtok.elements[8],
+						arrtok.elements[9], arrtok.elements[10],
+						arrtok.elements[11], arrtok.elements[12],
+						arrtok.elements[13], arrtok.elements[14],
+						arrtok.elements[15], arrtok.elements[16],
+						arrtok.elements[17], arrtok.elements[18],
+						arrtok.elements[19], arrtok.elements[20],
+						arrtok.elements[21], arrtok.elements[22],
+						arrtok.elements[23], arrtok.elements[24],
+						arrtok.elements[25], arrtok.elements[26],
+						arrtok.elements[27], arrtok.elements[28],
+						arrtok.elements[29], arrtok.elements[30],
+						arrtok.elements[31], arrtok.elements[32],
+						arrtok.elements[33], arrtok.elements[34],
+						arrtok.elements[35], arrtok.elements[36],
+						arrtok.elements[37], arrtok.elements[38],
+						arrtok.elements[39], arrtok.elements[40],
+						arrtok.elements[41], arrtok.elements[42],
+						arrtok.elements[43], arrtok.elements[44],
+						arrtok.elements[45], arrtok.elements[46],
+						arrtok.elements[47], arrtok.elements[48],
+						arrtok.elements[49], arrtok.elements[50],
+						arrtok.elements[51], arrtok.elements[52],
+						arrtok.elements[53], arrtok.elements[54],
+						arrtok.elements[55], arrtok.elements[56],
+						arrtok.elements[57], arrtok.elements[58],
+						arrtok.elements[59], arrtok.elements[60],
+						arrtok.elements[61], arrtok.elements[62],
+						arrtok.elements[63], arrtok.elements[64],
+						arrtok.elements[65], arrtok.elements[66],
+						arrtok.elements[67], arrtok.elements[68],
+						arrtok.elements[69], arrtok.elements[70],
+						arrtok.elements[71], arrtok.elements[72],
+						arrtok.elements[73], arrtok.elements[74],
+						arrtok.elements[75], arrtok.elements[76],
+						arrtok.elements[77], arrtok.elements[78],
+						arrtok.elements[79]);
+		printf("Failed to exec %s\n",binaryName);
+	} else {
+		// TODO given binary not found in PATH environments, error out
+		printf("Failed to exec %s, binary path is not found on PATH environment\n",binaryName);
+	}
 }
  
 /* The setup function below will not return any value, but it will just: read
@@ -478,7 +572,7 @@ int main(void)
 			if (argumentSize >= 1) {
 				if (!strcmp(args[0],"alias")) {
 					if (!strcmp(args[1],"-l")) {
-						// TODO list all aliased cmds
+						list_aliased_cmds(); // List aliased cmds
 					} else {
 						// TODO inserAlias()
 					}
@@ -506,11 +600,12 @@ int main(void)
 							so just bridge it to exec function */
 						}
 					} else if (cmdSize == 2) {
-						// it means we have exactly 1 delimiter('<', '>', '|', '>>', '2>') so piping/duping is required
+						/* it means we have exactly=1 delimiter('<', '>', '|', '>>', '2>') 
+						so piping/duping is required */
 						// TODO we NEED piping or redirecting
 						
 					} else {
-						/* it means we have more than 1 delimiter('<', '>', '|', '>>', '2>') 
+						/* it means we have more than>1 delimiter('<', '>', '|', '>>', '2>') 
 						so piping/duping is required */
 						// TODO we NEED piping or redirecting
 					}
