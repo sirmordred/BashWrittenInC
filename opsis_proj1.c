@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <ctype.h>
 #include <dirent.h>
 #include <unistd.h>
@@ -12,6 +13,7 @@
 #include <time.h>
 #include <fcntl.h>
 
+#define DEBUGGABLE 1
 #define MAX_LINE 80 /* 80 chars per line, per command, should be enough. */
 
 struct arrToken {
@@ -134,24 +136,35 @@ char *hasAlias(char cmd[255]) {
 
 // it parses PATH and gets binary paths and then search given binName in their folder, if it finds return binPath(e.g usr/bin)
 char *hasCmd(char binName[255]) {
-    char *ptr = getenv("PATH");
+    char *binPathStr = (char *) malloc(sizeof(char) * 255); // to make it pass-by-value (don't modify given parameter!)
+    memset(binPathStr, '\0', sizeof(binPathStr));
+    strcpy(binPathStr,binName);
+
+    char *ptr = (char *) malloc(sizeof(char) * 1000);
+    memset(ptr,'\0',sizeof(ptr));
+    strcpy(ptr, getenv("PATH")); // get path-variables and store them in ptr string
+
     char *binPath;
     DIR *dir;
     struct dirent *ent;
+
     while ((binPath = strtok(ptr, ":")) != NULL) { // split PATH into sub-paths by using ':' delimiter
         if ((dir = opendir (binPath)) != NULL) {
             while ((ent = readdir (dir)) != NULL) {
-                if (!strncmp(binName,ent->d_name,strlen(binName))) { // check if our given binName is in the selected sub-path(e.g usr/bin)
+                if (!strncmp(binPathStr,ent->d_name, strlen(ent->d_name))) { // check if our given binName is in the selected sub-path(e.g usr/bin)
                     strcat(binPath,"/"); // concatenate '/'
-                    strcat(binPath,binName); // concatenate our given binName (e.g ls,pwd)
-                    return binPath; //result will be something like usr/bin/ls
+                    strcat(binPath,binPathStr); // concatenate our given binName (e.g ls,pwd)
+
+		    free(ptr);  // free string which is holding path-variables
+		    free(binPathStr); // free temporary string which is holding a copy of binName
+		    return binPath;
                 }
             }
-            closedir (dir);
+            closedir(dir);
         }
         ptr = NULL;
     }
-    return NULL;
+    return binPathStr;
 }
 
 int contains(char strInp[255], char delimiter[255]) {
@@ -296,6 +309,10 @@ char *arrToStr(char *args[], int size, int index) {
 }
 
 struct arrToken strToArr(char *cmdStr) {
+    char cmdString[255]; // for pass-by-value, (don't modify given parameter)
+    memset(cmdString, '\0', sizeof(cmdString));
+    strcpy(cmdString,cmdStr);
+
     struct arrToken retArr;
     for (int f = 0; f < 80; f++) {
 	retArr.elements[f] = NULL; // NULL-ify all the elements of array (initialization)
@@ -304,8 +321,8 @@ struct arrToken strToArr(char *cmdStr) {
     memset(separatedArg,'\0', sizeof(separatedArg));
     int j = 0;
     int argCount = 0;
-    for (int i = 0; i < strlen(cmdStr); i++) { /* examine every character in the inputBuffer */
-        switch (cmdStr[i]) {
+    for (int i = 0; i < strlen(cmdString); i++) { /* examine every character in the inputBuffer */
+        switch (cmdString[i]) {
             case ' ':
             case '\t':               /* argument separators */
 		retArr.elements[argCount] = (char *) malloc(sizeof(char) * 255); // alloc 255*char space for storing string
@@ -314,8 +331,8 @@ struct arrToken strToArr(char *cmdStr) {
                 j = 0;
                 break;
             default:
-                separatedArg[j++] = cmdStr[i];
-                if (i == (strlen(cmdStr) - 1)) {
+                separatedArg[j++] = cmdString[i];
+                if (i == (strlen(cmdString) - 1)) {
                     retArr.elements[argCount] = (char *) malloc(sizeof(char) * 255); // alloc 255*char space for storing string
                     strcpy(retArr.elements[argCount++],separatedArg);
                     memset(separatedArg,'\0', sizeof(separatedArg)); // clear
@@ -332,7 +349,9 @@ int argSize(char *args[]) {
 	int count = 0;
 	while(args[count++] != NULL){
 	}
-	printf("cnt: %d\n",count);
+	if (DEBUGGABLE) {
+		printf("cnt: %d\n",count);
+	}
 	return count - 1;
 }
 
@@ -382,55 +401,65 @@ void list_aliased_cmds() {
 }
 
 void executeCmd(struct arrToken arrtok) {
+	pid_t childpid;
 	char binaryName[255];
 	memset(binaryName,'\0',sizeof(binaryName));
-	strcpy(binaryName, arrtok.elements[0]); // get binary name which will be executed
+	strcpy(binaryName, arrtok.elements[0]); // get binary name which will be executed and store it on binaryName
 	
-	// find that binary's path
-	char *binaryPath = hasCmd(binaryName);
+	// find that binary's path and store it on binaryPath
+	char binaryPath[255];
+	memset(binaryPath,'\0',sizeof(binaryPath));
+	strcpy(binaryPath,hasCmd(binaryName));
+
 	if (binaryPath != NULL) {
-		// execute it 
-		execl(binaryPath, binaryName, arrtok.elements[1], arrtok.elements[2], 
-						arrtok.elements[3], arrtok.elements[4],
-						arrtok.elements[5], arrtok.elements[6],
-						arrtok.elements[7], arrtok.elements[8],
-						arrtok.elements[9], arrtok.elements[10],
-						arrtok.elements[11], arrtok.elements[12],
-						arrtok.elements[13], arrtok.elements[14],
-						arrtok.elements[15], arrtok.elements[16],
-						arrtok.elements[17], arrtok.elements[18],
-						arrtok.elements[19], arrtok.elements[20],
-						arrtok.elements[21], arrtok.elements[22],
-						arrtok.elements[23], arrtok.elements[24],
-						arrtok.elements[25], arrtok.elements[26],
-						arrtok.elements[27], arrtok.elements[28],
-						arrtok.elements[29], arrtok.elements[30],
-						arrtok.elements[31], arrtok.elements[32],
-						arrtok.elements[33], arrtok.elements[34],
-						arrtok.elements[35], arrtok.elements[36],
-						arrtok.elements[37], arrtok.elements[38],
-						arrtok.elements[39], arrtok.elements[40],
-						arrtok.elements[41], arrtok.elements[42],
-						arrtok.elements[43], arrtok.elements[44],
-						arrtok.elements[45], arrtok.elements[46],
-						arrtok.elements[47], arrtok.elements[48],
-						arrtok.elements[49], arrtok.elements[50],
-						arrtok.elements[51], arrtok.elements[52],
-						arrtok.elements[53], arrtok.elements[54],
-						arrtok.elements[55], arrtok.elements[56],
-						arrtok.elements[57], arrtok.elements[58],
-						arrtok.elements[59], arrtok.elements[60],
-						arrtok.elements[61], arrtok.elements[62],
-						arrtok.elements[63], arrtok.elements[64],
-						arrtok.elements[65], arrtok.elements[66],
-						arrtok.elements[67], arrtok.elements[68],
-						arrtok.elements[69], arrtok.elements[70],
-						arrtok.elements[71], arrtok.elements[72],
-						arrtok.elements[73], arrtok.elements[74],
-						arrtok.elements[75], arrtok.elements[76],
-						arrtok.elements[77], arrtok.elements[78],
-						arrtok.elements[79]);
-		printf("Failed to exec %s\n",binaryName);
+		// execute it
+		childpid = fork();
+		if (childpid == 0) {
+			execl(binaryPath, binaryName, arrtok.elements[1], arrtok.elements[2], 
+							arrtok.elements[3], arrtok.elements[4],
+							arrtok.elements[5], arrtok.elements[6],
+							arrtok.elements[7], arrtok.elements[8],
+							arrtok.elements[9], arrtok.elements[10],
+							arrtok.elements[11], arrtok.elements[12],
+							arrtok.elements[13], arrtok.elements[14],
+							arrtok.elements[15], arrtok.elements[16],
+							arrtok.elements[17], arrtok.elements[18],
+							arrtok.elements[19], arrtok.elements[20],
+							arrtok.elements[21], arrtok.elements[22],
+							arrtok.elements[23], arrtok.elements[24],
+							arrtok.elements[25], arrtok.elements[26],
+							arrtok.elements[27], arrtok.elements[28],
+							arrtok.elements[29], arrtok.elements[30],
+							arrtok.elements[31], arrtok.elements[32],
+							arrtok.elements[33], arrtok.elements[34],
+							arrtok.elements[35], arrtok.elements[36],
+							arrtok.elements[37], arrtok.elements[38],
+							arrtok.elements[39], arrtok.elements[40],
+							arrtok.elements[41], arrtok.elements[42],
+							arrtok.elements[43], arrtok.elements[44],
+							arrtok.elements[45], arrtok.elements[46],
+							arrtok.elements[47], arrtok.elements[48],
+							arrtok.elements[49], arrtok.elements[50],
+							arrtok.elements[51], arrtok.elements[52],
+							arrtok.elements[53], arrtok.elements[54],
+							arrtok.elements[55], arrtok.elements[56],
+							arrtok.elements[57], arrtok.elements[58],
+							arrtok.elements[59], arrtok.elements[60],
+							arrtok.elements[61], arrtok.elements[62],
+							arrtok.elements[63], arrtok.elements[64],
+							arrtok.elements[65], arrtok.elements[66],
+							arrtok.elements[67], arrtok.elements[68],
+							arrtok.elements[69], arrtok.elements[70],
+							arrtok.elements[71], arrtok.elements[72],
+							arrtok.elements[73], arrtok.elements[74],
+							arrtok.elements[75], arrtok.elements[76],
+							arrtok.elements[77], arrtok.elements[78],
+							arrtok.elements[79]);
+
+			printf("Failed to exec %s\n",binaryName);
+		} else if (childpid > 0) {
+			wait(NULL);
+		}
 	} else {
 		// TODO given binary not found in PATH environments, error out
 		printf("Failed to exec %s, binary path is not found on PATH environment\n",binaryName);
@@ -444,12 +473,10 @@ will become null-terminated, C-style strings. */
 
 void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[], int isStrSupplied)
 {
-    int length, /* # of characters in the command line */
-        i,      /* loop index for accessing inputBuffer array */
-        start,  /* index where beginning of next command parameter is */
-        ct;     /* index of where to place the next parameter into args[] */
-    
-    ct = 0;
+    int length = 0; /* # of characters in the command line */
+    int i = 0;      /* loop index for accessing inputBuffer array */
+    int start = -1;  /* index where beginning of next command parameter is */
+    int ct = 0;     /* index of where to place the next parameter into args[] */
         
     if (isStrSupplied == 1) {
 	// process supplied string
@@ -465,7 +492,6 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[],
        the command that is read, and length holds the number of characters
        read in. inputBuffer is not a null terminated C-string. */
 
-    start = -1;
     if (length == 0)
         exit(0);            /* ^d was entered, end of user command stream */
 
@@ -479,6 +505,8 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[],
     }
 
     strcpy(copyOfInput,inputBuffer);
+    if (copyOfInput[strlen(copyOfInput) - 1] == '\n')
+    	copyOfInput[strlen(copyOfInput) - 1] = '\0'; // replace ending \n with \0 (user entered input has \n at the end but we dont want \n at the end, we want \0 like normal C-string)
 
     for (i = 0; i < length; i++) { /* examine every character in the inputBuffer */
         switch (inputBuffer[i]) {
@@ -493,10 +521,10 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[],
 		break;
             case '\n':                 /* should be the final char examined */
 		if (start != -1){
-                    args[ct] = &inputBuffer[start];    
+		    inputBuffer[i] = '\0';
+                    args[ct] = &inputBuffer[start];
 		    ct++;
 		}
-                inputBuffer[i] = '\0';
                 args[ct] = NULL; /* no more arguments to this command */
 		break;
 	    default :             /* some other character */
@@ -510,21 +538,30 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[],
      }    /* end of for */
      args[ct] = NULL; /* just in case the input line was > 80 */
 
-     for (i = 0; i <= ct; i++)
-	printf("args %d = %s\n",i,args[i]);
+     if (DEBUGGABLE) {
+	     for (i = 0; i <= ct; i++)
+		printf("args %d = %s\n",i,args[i]);
+     }
+
 
 } /* end of setup routine */
  
 int main(void)
 {
+	    int isShellRunning = 1;
 	    AliasElement *test1;
             char inputBuffer[MAX_LINE]; /*buffer to hold command entered */
             char userEnteredInput[255];
 	    memset(userEnteredInput, '\0', sizeof(userEnteredInput));
             int background; /* equals 1 if a command is followed by '&' */
             char *args[MAX_LINE/2 + 1]; /*command line arguments */
-            while (1){
-                        background = 0;
+            while (isShellRunning){
+                        background = 0; // clear variable
+			memset(userEnteredInput,'\0',sizeof(userEnteredInput)); // clear variable
+			for (int t = 0; t < MAX_LINE/2 + 1; t++) {
+				args[t] = NULL; // NULL-ify all the elements of array (initialization)
+			}
+			memset(inputBuffer,'\0',sizeof(inputBuffer)); // clear variable
                         printf("myshell: ");
 			fflush(stdout);
                         /*setup() calls exit() when Control-D is entered */
@@ -538,7 +575,9 @@ int main(void)
                         otherwise it will invoke the setup() function again. */
 
 			int argumentSize = argSize(args); // parse by ' ', '\t'
-			printf("arg size: %d\n",argumentSize);
+			if (DEBUGGABLE) {
+				printf("arg size: %d\n",argumentSize);
+			}
 			int cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
 			// ******* ALIAS DETECTION AND HANDLING START ********* 
@@ -556,10 +595,9 @@ int main(void)
 			if (hasAlias == 1) {
 				char *newInputBuffer = arrToStr(args,argumentSize,0); // convert the new argument array to charArray(so string)
 				int sizeOfNewInputBuffer = strlen(newInputBuffer);
-				char *tempStr = (char *) malloc(sizeof(char) * (sizeOfNewInputBuffer + 2)); // +1 for \n and +1 for \0
+				char *tempStr = (char *) malloc(sizeof(char) * (sizeOfNewInputBuffer + 1)); // +1 for \0
 				strcpy(inputBuffer,newInputBuffer); // and store that charArray/string in inputBuffer
-				inputBuffer[sizeOfNewInputBuffer] = '\n'; // put \n for looking like real user entered input
-				inputBuffer[sizeOfNewInputBuffer + 1] = '\0'; // put termination-char to make it C-string
+				inputBuffer[sizeOfNewInputBuffer] = '\0'; // put termination-char to make it C-string
 				setup(inputBuffer, args, &background, userEnteredInput, 1); // pass that string to setup() func again
 			}
 			// ******* ALIAS DETECTION AND HANDLING END *********
@@ -570,34 +608,38 @@ int main(void)
 
 			/************ START EXECUTION STAGE OF COMMANDS ******/
 			if (argumentSize >= 1) {
-				if (!strcmp(args[0],"alias")) {
-					if (!strcmp(args[1],"-l")) {
-						list_aliased_cmds(); // List aliased cmds
-					} else {
-						// TODO inserAlias()
-					}
-				} else if (!strcmp(args[0],"unalias")) {
+				if (!strcmp(args[0],"alias")) { // TODO dont allow second arg is equivalent to "alias"
 					if (args[1] != NULL) {
-						// TODO removeAlias(args[1])
+						if (!strcmp(args[1],"-l")) {
+							list_aliased_cmds(); // List aliased cmds
+						} else {
+							insertAlias(&aliasLL, args[1], arrToStr(args, argumentSize, 2));
+						}
+					}
+				} else if (!strcmp(args[0],"unalias")) { // TODO dont allow second arg is equivalent to "unalias"
+					if (args[1] != NULL) {
+						removeAlias(&aliasLL, args[1]);
 					}
 				} else {
 					if (cmdSize == 1) { // it means we have only single command(command can be single-arg or multi-arg)
 						if (argumentSize == 1) {
 							//it means we have single-arg single command (e.g "exit", "clear" etc.)
 							if (!strcmp(args[0], "clr")) {
-								// TODO call System("clr");
+								system("clear");
 							} else if (!strcmp(args[0], "exit")) {
-								// TODO call System("exit");
+								isShellRunning = 0; // TODO also call exit(0) and also check background processes
 							} else if (!strcmp(args[0], "fg")) {
 								// TODO make background process foreground (one-by-one)
 							} else {
-								// TODO other commands, bridge it to exec function
+								// other commands, bridge it to exec function
+								executeCmd(strToArr(userEnteredInput));
 							}
 						} else {
 							//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
-							/* TODO we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>')
+							/* we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>')
 							 so we DONT NEED any pipe or redirect, 
 							so just bridge it to exec function */
+							executeCmd(strToArr(userEnteredInput));
 						}
 					} else if (cmdSize == 2) {
 						/* it means we have exactly=1 delimiter('<', '>', '|', '>>', '2>') 
@@ -610,8 +652,8 @@ int main(void)
 						// TODO we NEED piping or redirecting
 					}
 				}
-			} else {
-				// TODO empty command, handle it
 			}
             }
+
+	    return 0;
 }
