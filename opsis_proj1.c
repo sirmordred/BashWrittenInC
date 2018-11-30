@@ -108,8 +108,26 @@ void insertAlias(AliasElement **header, char fakeCmd[255], char realCmd[255])
     AliasElement *testIter;
     testIter = *header;
     while (testIter != NULL) {
+	if (!strcmp(testIter->fakeCmd,fakeCmd) && !strcmp(testIter->realCmd,realCmd)) { // same realCmd, same fakeCmd so same alias, print info to user that it has already aliased
+		printf("Entered aliased command is already exist, you can check out with \"alias -l\" (without quotes)\n");
+		return; // and return
+	}
+        testIter = testIter->next;
+    }
+
+    testIter = *header;
+    while (testIter != NULL) {
 	if (!strcmp(testIter->realCmd,realCmd)) { // if real commands matches (so aliased cmd is already exist)
-		strcpy(testIter->fakeCmd,fakeCmd); // just update the node
+		strcpy(testIter->fakeCmd,fakeCmd); // just update the node's fake cmd
+		return; // and return
+	}
+        testIter = testIter->next;
+    }
+
+    testIter = *header;
+    while (testIter != NULL) {
+	if (!strcmp(testIter->fakeCmd,fakeCmd)) { // if fake commands matches (so aliased cmd is already exist)
+		strcpy(testIter->realCmd,realCmd); // just update the node's real cmd
 		return; // and return
 	}
         testIter = testIter->next;
@@ -657,27 +675,40 @@ int main(void)
 			}
 			int cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
-			// ******* ALIAS DETECTION AND HANDLING START ********* 
-			int hasAlias = 0;
-			for (int i = 0; i < argumentSize; i++) {
-				test1 = aliasLL;
-				while (test1 != NULL) {
-					if (!strcmp(args[i], test1->fakeCmd)) {
-						strcpy(args[i], test1->realCmd); // replace fakeCmd with the realCmd in argument array
-						hasAlias = 1;
-					}
-					test1 = test1->next;
+			int isAliasDetectRequired = 1;
+			if (argumentSize >= 1) {
+				if (!strcmp(args[0],"alias")) {
+					// command starts with "alias ....blabla"
+					//so "alias detect operation" will not be used
+					// instead "alias add operation" will be used
+					isAliasDetectRequired = 0;
 				}
 			}
-			if (hasAlias == 1) {
-				char *newInputBuffer = arrToStr(args, argumentSize, 0, -1); // convert the new argument array to charArray(so string)
-				int sizeOfNewInputBuffer = strlen(newInputBuffer);
-				char *tempStr = (char *) malloc(sizeof(char) * (sizeOfNewInputBuffer + 1)); // +1 for \0
-				strcpy(inputBuffer,newInputBuffer); // and store that charArray/string in inputBuffer
-				inputBuffer[sizeOfNewInputBuffer] = '\0'; // put termination-char to make it C-string
-				setup(inputBuffer, args, &background, userEnteredInput, 1); // pass that string to setup() func again
+
+			if (isAliasDetectRequired == 1) {
+				// ******* ALIAS DETECTION AND HANDLING START ********* 
+				int hasAlias = 0;
+				for (int i = 0; i < argumentSize; i++) {
+					test1 = aliasLL;
+					while (test1 != NULL) {
+						if (!strcmp(args[i], test1->fakeCmd)) {
+							strcpy(args[i], test1->realCmd); // replace fakeCmd with the realCmd in argument array
+							hasAlias = 1;
+						}
+						test1 = test1->next;
+					}
+				}
+				if (hasAlias == 1) {
+					char *newInputBuffer = arrToStr(args, argumentSize, 0, -1); // convert the new argument array to charArray(so string)
+					int sizeOfNewInputBuffer = strlen(newInputBuffer);
+					char *tempStr = (char *) malloc(sizeof(char) * (sizeOfNewInputBuffer + 1)); // +1 for \n
+					strcpy(inputBuffer,newInputBuffer); // and copy that new charArray/string into inputBuffer
+					inputBuffer[sizeOfNewInputBuffer++] = '\n'; // put \n to make it like user entered input
+					inputBuffer[sizeOfNewInputBuffer] = '\0'; // put termination-char to make it C-string
+					setup(inputBuffer, args, &background, userEnteredInput, 1); // pass that string to setup() func again
+				}
+				// ******* ALIAS DETECTION AND HANDLING END *********
 			}
-			// ******* ALIAS DETECTION AND HANDLING END *********
 
 			// update argumentSize and cmdSize again (after handling aliased commands) 
 			argumentSize = argSize(args); // parse by ' ', '\t'
@@ -699,7 +730,7 @@ int main(void)
 							printf("Wrong alias usage, alias usage:\n	$myshell: alias \"ls -l\" list");
 						}
 					}
-				} else if (!strcmp(args[0],"unalias")) { // TODO dont allow second arg is equivalent to "unalias"
+				} else if (!strcmp(args[0],"unalias")) {
 					if (args[1] != NULL) {
 						removeAlias(&aliasLL, args[1]);
 					}
