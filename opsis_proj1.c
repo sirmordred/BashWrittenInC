@@ -625,7 +625,7 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[],
 	    default :             /* some other character */
 		if (start == -1)
 		    start = i;
-                if (inputBuffer[i] == '&'){ // TODO change setup() function to add check for that the (&) symbol MUST be the last argument (always)
+                if (inputBuffer[i] == '&'){ // Add check for that the (&) symbol MUST be the last argument (always)
 		    *background  = 1;
                     inputBuffer[i-1] = '\0';
 		}
@@ -640,9 +640,22 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[],
 
 
 } /* end of setup routine */
+
+int checkBeforeExit() {
+	// TODO Check if there is atleast one background process, if so, then don't exit, just warn the user
+}
  
 int main(void)
 {
+	    struct sigaction ctrlCaction;
+	    ctrlCaction.sa_handler = checkBeforeExit;
+	    ctrlCaction.sa_flags = 0;
+
+	    if (sigemptyset(&ctrlCaction.sa_mask) == -1 || sigaction(SIGINT, &ctrlCaction, NULL) == -1) { // initialize ctrl-c(SIGINT) signal catcher
+		perror("Failed to initialize signal set");
+		exit(1);
+	    }
+
 	    int isShellRunning = 1;
 	    AliasElement *test1;
             char inputBuffer[MAX_LINE]; /*buffer to hold command entered */
@@ -716,18 +729,22 @@ int main(void)
 
 			/************ START EXECUTION STAGE OF COMMANDS ******/
 			if (argumentSize >= 1) {
-				if (!strcmp(args[0],"alias")) { // TODO dont allow second arg is equivalent to "alias"
+				if (!strcmp(args[0],"alias")) {
 					if (args[1] != NULL) {
 						if (!strcmp(args[1],"-l")) {
 							list_aliased_cmds(); // List aliased cmds
-						} else if (argumentSize >= 3) { // TODO XXX alias "ls" list is not working FIX
+						} else if (argumentSize >= 3) {
 							char cmdWillBeAliased[255];
 							memset(cmdWillBeAliased, '\0', sizeof(cmdWillBeAliased));
 							strcpy(cmdWillBeAliased, arrToStr(args, argumentSize, 1, argumentSize - 1)); // make "quoted real cmd" string from args double-arr and copy it to temp string
 							trimQuotes(cmdWillBeAliased); // trim quotes of alias cmd to get real cmd
-							insertAlias(&aliasLL, args[argumentSize - 1], cmdWillBeAliased);
+							if (!strcmp(cmdWillBeAliased,"alias") || !strcmp(args[argumentSize - 1], "alias")) { // don't allow aliasing "alias" command which can create problems
+								printf("You can't alias \"alias\" command\n");
+							} else {
+								insertAlias(&aliasLL, args[argumentSize - 1], cmdWillBeAliased);
+							}
 						} else {
-							printf("Wrong alias usage, alias usage:\n	$myshell: alias \"ls -l\" list");
+							printf("Wrong alias usage, alias usage:\n	$myshell: alias \"ls -l\" list\n");
 						}
 					}
 				} else if (!strcmp(args[0],"unalias")) {
@@ -741,7 +758,7 @@ int main(void)
 							if (!strcmp(args[0], "clr")) {
 								system("clear");
 							} else if (!strcmp(args[0], "exit")) {
-								isShellRunning = 0; // TODO also call exit(0) and also check background processes
+								checkBeforeExit();
 							} else if (!strcmp(args[0], "fg")) {
 								// TODO make background process foreground (one-by-one)
 							} else {
