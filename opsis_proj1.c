@@ -26,6 +26,14 @@ struct token {
     char secTok[255];
 };
 
+struct nodeProcess {
+    pid_t pidVal; // pid value of that process
+    int type; // 0 == FOREGROUND, 1 == BACKGROUND 
+    struct nodeProcess *next;
+};
+typedef struct nodeProcess ProcessElement;
+ProcessElement *processLL = NULL;
+
 struct nodeAlias {
     char fakeCmd[255];
     char realCmd[255];
@@ -67,8 +75,46 @@ void insertCmd(Command **header, char givenCmd[255], int valid)
     }
 }
 
+void insertProcess(ProcessElement **header, pid_t pidValue, int execType) // 0 == FOREGROUND, 1 == BACKGROUND
+{
+    ProcessElement *p, *temp;
+
+    // create node to insert and assign values to its fields
+    p = (ProcessElement *) malloc(sizeof(ProcessElement));
+    p->pidVal = pidValue; // copy pid value
+    p->type = execType; // copy execution type(background,foreground)
+    p->next=NULL;
+
+    // if LL empty
+    if (*header == NULL) {
+        *header=p;
+    } else {// if LL is not empty
+        // assign temp to header to point same node
+        temp = *header;
+        // iterate it until the last node
+        while (temp->next != NULL) {
+            temp = temp->next;
+        }
+
+	// add new node into last
+	temp->next = p;
+
+    }
+}
+
 void insertAlias(AliasElement **header, char fakeCmd[255], char realCmd[255])
 {
+    // check existent alias before, if it has, just update the node
+    AliasElement *testIter;
+    testIter = *header;
+    while (testIter != NULL) {
+	if (!strcmp(testIter->realCmd,realCmd)) { // if real commands matches (so aliased cmd is already exist)
+		strcpy(testIter->fakeCmd,fakeCmd); // just update the node
+		return; // and return
+	}
+        testIter = testIter->next;
+    }
+
     AliasElement *p, *temp;
 
     // create node to insert and assign values to its fields
@@ -85,11 +131,12 @@ void insertAlias(AliasElement **header, char fakeCmd[255], char realCmd[255])
         temp = *header;
         // iterate it until the last node
         while (temp->next != NULL) {
-	    // TODO while inserting aliased command, if its already in the linkedlist, update the node
             temp = temp->next;
         }
-        // add new node into last
-        temp->next = p;
+
+	// add new node into last
+	temp->next = p;
+
     }
 }
 
@@ -290,11 +337,15 @@ void parseCmd(char command[255]) {
     }
 }
 
-char *arrToStr(char *args[], int size, int index) {
-    if (index < size) {
+char *arrToStr(char *args[], int size, int beginIndex, int isLastIndex) {
+    int lastIndex = size;
+    if (isLastIndex != -1) { // if last index is supplied to function 
+	lastIndex = isLastIndex;
+    }
+    if (beginIndex < lastIndex) {
         char tempStr[255];
         memset(tempStr,'\0', sizeof(tempStr));
-        for (int i = index; i < size; i++) {
+        for (int i = beginIndex; i < lastIndex; i++) {
             strcat(tempStr,args[i]);
             if (i != (size - 1)) {
                 strcat(tempStr," ");
@@ -343,6 +394,32 @@ struct arrToken strToArr(char *cmdStr) {
     }
     retArr.elementsSize = argCount;
     return retArr;
+}
+
+void trimQuotes(char *inpStr) {
+	int firstQuoteIndex = -1;
+	int secQuoteIndex = -1;
+	for (int i = 0; i < strlen(inpStr); i++) {
+		if (inpStr[i] == '"') {
+			firstQuoteIndex = i;
+			break;
+		}
+	}
+	for (int h = strlen(inpStr) - 1; h >= 0; h--) {
+		if (inpStr[h] == '"') {
+			secQuoteIndex = h;
+			break;
+		}
+	}
+	if (firstQuoteIndex != -1 && secQuoteIndex != -1) {
+		for (int j = firstQuoteIndex; j <= secQuoteIndex; j++) {
+			if (j == secQuoteIndex) { // "abc" do not swap 'c' with '"' (so secQuoteIndex - 1)
+				inpStr[j-1] = '\0';
+			} else {
+				inpStr[j] = inpStr[j+1];
+			}
+		}
+	}
 }
 
 int argSize(char *args[]) {
@@ -593,7 +670,7 @@ int main(void)
 				}
 			}
 			if (hasAlias == 1) {
-				char *newInputBuffer = arrToStr(args,argumentSize,0); // convert the new argument array to charArray(so string)
+				char *newInputBuffer = arrToStr(args, argumentSize, 0, -1); // convert the new argument array to charArray(so string)
 				int sizeOfNewInputBuffer = strlen(newInputBuffer);
 				char *tempStr = (char *) malloc(sizeof(char) * (sizeOfNewInputBuffer + 1)); // +1 for \0
 				strcpy(inputBuffer,newInputBuffer); // and store that charArray/string in inputBuffer
@@ -612,8 +689,14 @@ int main(void)
 					if (args[1] != NULL) {
 						if (!strcmp(args[1],"-l")) {
 							list_aliased_cmds(); // List aliased cmds
+						} else if (argumentSize >= 3) { // TODO XXX alias "ls" list is not working FIX
+							char cmdWillBeAliased[255];
+							memset(cmdWillBeAliased, '\0', sizeof(cmdWillBeAliased));
+							strcpy(cmdWillBeAliased, arrToStr(args, argumentSize, 1, argumentSize - 1)); // make "quoted real cmd" string from args double-arr and copy it to temp string
+							trimQuotes(cmdWillBeAliased); // trim quotes of alias cmd to get real cmd
+							insertAlias(&aliasLL, args[argumentSize - 1], cmdWillBeAliased);
 						} else {
-							insertAlias(&aliasLL, args[1], arrToStr(args, argumentSize, 2));
+							printf("Wrong alias usage, alias usage:\n	$myshell: alias \"ls -l\" list");
 						}
 					}
 				} else if (!strcmp(args[0],"unalias")) { // TODO dont allow second arg is equivalent to "unalias"
