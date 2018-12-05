@@ -360,16 +360,6 @@ void trimQuotes(char *inpStr) {
 	}
 }
 
-int argSize(char *args[]) {
-	int count = 0;
-	while(args[count++] != NULL){
-	}
-	if (DEBUGGABLE) {
-		printf("cnt: %d\n",count);
-	}
-	return count - 1;
-}
-
 int commandSize(char *args[], int argsSize) {
 	int count = 1;
 	for (int i = 0; i < argsSize; i++) {
@@ -481,7 +471,7 @@ in the next command line; separate it into distinct arguments (using blanks as
 delimiters), and set the args array entries to point to the beginning of what
 will become null-terminated, C-style strings. */
 
-void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[], int isStrSupplied)
+void setup(char inputBuffer[], char *args[],int *argsLenght, int *background, int isStrSupplied)
 {
     int length = 0; /* # of characters in the command line */
     int i = 0;      /* loop index for accessing inputBuffer array */
@@ -513,10 +503,6 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[],
         perror("error reading the command");
 	exit(-1);           /* terminate with error code of -1 */
     }
-
-    strcpy(copyOfInput,inputBuffer);
-    if (copyOfInput[strlen(copyOfInput) - 1] == '\n')
-    	copyOfInput[strlen(copyOfInput) - 1] = '\0'; // replace ending \n with \0 (user entered input has \n at the end but we dont want \n at the end, we want \0 like normal C-string)
 
     for (i = 0; i < length; i++) { /* examine every character in the inputBuffer */
         switch (inputBuffer[i]) {
@@ -552,9 +538,102 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[],
 	     for (i = 0; i < ct; i++)
 		printf("args %d = %s\n",i,args[i]);
      }
+     *argsLenght = ct;
 
 
 } /* end of setup routine */
+
+void parseCommand(char *args[], int argSize){
+    char strWillBeinserted[255] = "";
+    for (int i = 0; i < argSize; i++) {
+        if (!strcmp(args[i],"<")) {
+            insertCommand(&commandLL,strWillBeinserted,args[i+1],"",0,1);
+            makeEmpty(strWillBeinserted);
+            i++; // we dont need  i+1 argument anymore so skip it
+        } else if (!strcmp(args[i],">")){
+            if (isEmpty(strWillBeinserted)) {
+                int sizeOfCmdList = sizeOfLL(&commandLL);
+                if (sizeOfCmdList > 0) {
+                    Cmd *iter = commandLL;
+                    for (int h = 0; h < sizeOfCmdList; h++) {
+                        if (h == sizeOfCmdList - 1) { // last element
+                            strcpy(iter->outputFilePath,args[i+1]);
+                            iter->fileIOType = 5;
+                            i++; // we dont need i+1 element
+                        }
+                        iter = iter->next;
+                    }
+                }
+            } else {
+                insertCommand(&commandLL,strWillBeinserted,"",args[i+1],0,2);
+                makeEmpty(strWillBeinserted);
+                i++; // we dont need  i+1 argument anymore so skip it
+            }
+        } else if (!strcmp(args[i],">>")){
+            if (isEmpty(strWillBeinserted)) {
+                int sizeOfCmdList = sizeOfLL(&commandLL);
+                if (sizeOfCmdList > 0) {
+                    Cmd *iter = commandLL;
+                    for (int h = 0; h < sizeOfCmdList; h++) {
+                        if (h == sizeOfCmdList - 1) { // last element
+                            strcpy(iter->outputFilePath,args[i+1]);
+                            iter->fileIOType = 6;
+                            i++; // we dont need i+1 element
+                        }
+                        iter = iter->next;
+                    }
+                }
+            } else {
+                insertCommand(&commandLL,strWillBeinserted,"",args[i+1],0,3);
+                makeEmpty(strWillBeinserted);
+                i++; // we dont need  i+1 argument anymore so skip it
+            }
+        } else if (!strcmp(args[i],"2>")){
+            if (isEmpty(strWillBeinserted)) {
+                int sizeOfCmdList = sizeOfLL(&commandLL);
+                if (sizeOfCmdList > 0) {
+                    Cmd *iter = commandLL;
+                    for (int h = 0; h < sizeOfCmdList; h++) {
+                        if (h == sizeOfCmdList - 1) { // last element
+                            strcpy(iter->outputFilePath,args[i+1]);
+                            iter->fileIOType = 7;
+                            i++; // we dont need i+1 element
+                        }
+                        iter = iter->next;
+                    }
+                }
+            } else {
+                insertCommand(&commandLL,strWillBeinserted,"",args[i+1],0,4);
+                makeEmpty(strWillBeinserted);
+                i++; // we dont need  i+1 argument anymore so skip it
+            }
+        } else if (!strcmp(args[i],"|")){
+            // since we deal pipe through array and array.element's pipeRequired filed just continue
+            // iterate through sortedArray and set 'pipeRequired' field to 1
+            if (!isEmpty(strWillBeinserted)) {
+                insertCommand(&commandLL,strWillBeinserted,"","",0,0);
+                makeEmpty(strWillBeinserted);
+            }
+            int sizeOfCmdList = sizeOfLL(&commandLL);
+            if (sizeOfCmdList > 0) {
+                Cmd *iter = commandLL;
+                for (int h = 0; h < sizeOfCmdList; h++) {
+                    if (h == sizeOfCmdList - 1) { // last element
+                        iter->pipeRequired = 1;
+                    }
+                    iter = iter->next;
+                }
+            }
+        } else {
+            strcat(strWillBeinserted,args[i]);
+            strcat(strWillBeinserted," ");
+        }
+        if (i == argSize - 1 && !isEmpty(strWillBeinserted)) { // add remaining commands if left
+            insertCommand(&commandLL,strWillBeinserted,"","",0,0);
+            makeEmpty(strWillBeinserted);
+        }
+    }
+}
 
 void execute(Cmd **header) {
 	Cmd *test;
@@ -597,25 +676,25 @@ void execute(Cmd **header) {
 					int fileDesc = openFile(fOutPath, 0); // write-err
 					dup2(fileDesc, STDERR_FILENO);
 					close(fileDesc);
-				} else 	if (fIOType == 5) {
-					int fileDesc1 = openFile(fInPath, 0);
+				} else 	if (fIOType == 5) { // in the above read-write modes openFiles() with 1==read-write CREATE_FLAGS
+					int fileDesc1 = openFile(fInPath, 1);
 					dup2(fileDesc1, STDIN_FILENO);
 					close(fileDesc1);
-					int fileDesc2 = openFile(fOutPath, 2); // read and write-overwrite
+					int fileDesc2 = openFile(fOutPath, 1); // read and write-overwrite
 					dup2(fileDesc1, STDOUT_FILENO);
 					close(fileDesc2);
 				} else 	if (fIOType == 6) {
-					int fileDesc1 = openFile(fInPath, 0);
+					int fileDesc1 = openFile(fInPath, 1);
 					dup2(fileDesc1, STDIN_FILENO);
 					close(fileDesc1);
-					int fileDesc2 = openFile(fOutPath, 3); // read and write-append
+					int fileDesc2 = openFile(fOutPath, 1); // read and write-append
 					dup2(fileDesc2, STDOUT_FILENO);
 					close(fileDesc2);
 				} else 	if (fIOType == 7) {
-					int fileDesc1 = openFile(fInPath, 0);
+					int fileDesc1 = openFile(fInPath, 1);
 					dup2(fileDesc1, STDIN_FILENO);
 					close(fileDesc1);
-					int fileDesc2 = openFile(fOutPath, 2); // read and write-err
+					int fileDesc2 = openFile(fOutPath, 1); // read and write-err
 					dup2(fileDesc2, STDERR_FILENO);
 					close(fileDesc2);
 				}
@@ -627,18 +706,22 @@ void execute(Cmd **header) {
 					close(pipeFd[pipeCounter][1]);
 				}
 			} else if (i == sizeOfCmdList-1) { // last process last cmd
-				// inputunu pipe'in inputuna kopyala
+				// inputunu bir önceki pipe'in inputuna kopyala
 				dup2(pipeFd[pipeCounter-1][0], STDIN_FILENO);
 				// close
 				close(pipeFd[pipeCounter-1][0]);
 				close(pipeFd[pipeCounter-1][1]);
 				if (fIOType == 2) {
-					int fileDesc = openFile(fOutPath, 1); // open file desc in 1==writeOverwrite and copy it to stdout and then close file desc
+					int fileDesc = openFile(fOutPath, 2); // open file desc in 2==writeOverwrite and copy it to stdout and then close file desc
 					dup2(fileDesc, STDOUT_FILENO);
 					close(fileDesc);
 				} else 	if (fIOType == 3) {
-					int fileDesc = openFile(fOutPath, 2); // open file desc in 2==writeAppend and copy it to stdout and then close file desc
+					int fileDesc = openFile(fOutPath, 3); // open file desc in 3==writeAppend and copy it to stdout and then close file desc
 					dup2(fileDesc, STDOUT_FILENO);
+					close(fileDesc);
+				} else 	if (fIOType == 4) {
+					int fileDesc = openFile(fOutPath, 2); // open file desc in 2==writeOverwrite and copy it to stderr and then close file desc
+					dup2(fileDesc, STDERR_FILENO);
 					close(fileDesc);
 				}
 			} else { // middle processes, middle commands
@@ -651,17 +734,17 @@ void execute(Cmd **header) {
 				close(pipeFd[pipeCounter-1][0]);
 				close(pipeFd[pipeCounter-1][1]);
 			}
-			executeCmd(strToArr(command));
-			perror("buraya gelme\n");
+			executeCmd(strToArr(command)); // TODO XXX trim trailing/ending whitespace of 'command'
+			perror("Failed to execute command in executeCmd(...)\n");
 		} else if (childpid == -1) {
-			perror("error while creating child proc\n");
-		} else {
+			perror("Error while creating child process\n");
+		} else { // parent process
 			if(i > 0){
 				close(pipeFd[pipeCounter-1][0]);
 				close(pipeFd[pipeCounter-1][1]);
 			}
 			pipeCounter++;
-			test = test->next;
+			test = test->next; // iterate to next command in commandLL linkedlist
 		}
 	}
 	wait(NULL);
@@ -692,6 +775,7 @@ int main(void)
             int background; // equals 1 if a command is followed by '&'
             char *args[MAX_LINE/2 + 1]; //command line arguments
             while (isShellRunning){
+			int argumentSize = 0;
                         background = 0; // clear variable
 			memset(userEnteredInput,'\0',sizeof(userEnteredInput)); // clear variable
 			for (int t = 0; t < MAX_LINE/2 + 1; t++) {
@@ -702,7 +786,7 @@ int main(void)
 			fflush(stdout);
                         //setup() calls exit() when Control-D is entered
 			fflush(stdin);
-                        setup(inputBuffer, args, &background, userEnteredInput, 0);
+                        setup(inputBuffer, args, &argumentSize, &background, userEnteredInput, 0);
  			fflush(stdin);
                         // the steps are:
                         // (1) fork a child process using fork()
@@ -710,10 +794,6 @@ int main(void)
 			//			(3) if background == 0, the parent will wait,
                         // otherwise it will invoke the setup() function again.
 
-			int argumentSize = argSize(args); // parse by ' ', '\t'
-			if (DEBUGGABLE) {
-				printf("arg size: %d\n",argumentSize);
-			}
 			int cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
 			int isAliasDetectRequired = 1;
@@ -746,13 +826,12 @@ int main(void)
 					strcpy(inputBuffer,newInputBuffer); // and copy that new charArray/string into inputBuffer
 					inputBuffer[sizeOfNewInputBuffer++] = '\n'; // put \n to make it like user entered input
 					inputBuffer[sizeOfNewInputBuffer] = '\0'; // put termination-char to make it C-string
-					setup(inputBuffer, args, &background, userEnteredInput, 1); // pass that string to setup() func again
+					setup(inputBuffer, args, &argumentSize, &background, userEnteredInput, 1); // pass that string to setup() func again
 				}
 				// ******* ALIAS DETECTION AND HANDLING END *********
 			}
 
-			// update argumentSize and cmdSize again (after handling aliased commands) 
-			argumentSize = argSize(args); // parse by ' ', '\t'
+			// update cmdSize again (after handling aliased commands) 
 			cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
 			////////////////// START EXECUTION STAGE OF COMMANDS /////////////////
