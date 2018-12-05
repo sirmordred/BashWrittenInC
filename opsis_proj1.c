@@ -21,10 +21,16 @@ struct arrToken {
     int elementsSize;
 };
 
-struct token {
-    char firstTok[255];
-    char secTok[255];
+struct cmdNode {
+    char cmd[255];
+    char inputFilePath[255];
+    char outputFilePath[255];
+    int pipeRequired;
+    int fileIOType;
+    struct cmdNode *next;
 };
+typedef struct cmdNode Cmd;
+Cmd *commandLL = NULL;
 
 struct nodeProcess {
     pid_t pidVal; // pid value of that process
@@ -42,22 +48,49 @@ struct nodeAlias {
 typedef struct nodeAlias AliasElement;
 AliasElement *aliasLL = NULL;
 
-struct nodeCmd {
-    char cmd[255];
-    int isValid;
-    struct nodeCmd *next;
-};
-typedef struct nodeCmd Command;
-Command *cmdLL = NULL;
+int isEmpty(char *inpStr) {
+    if (strlen(inpStr) == 0) {
+        return 1;
+    }
+    return 0;
+}
 
-void insertCmd(Command **header, char givenCmd[255], int valid)
+void makeEmpty(char *inpStr) {
+    strcpy(inpStr,"");
+}
+
+void listCommands(Cmd **header) {
+    Cmd *test;
+    test = *header;
+    while (test != NULL) {
+        printf("cmd: %s inputFilePath: %s outputFilePath: %s pipeReq: %d fileIOType: %d\n",
+                test->cmd,test->inputFilePath,test->outputFilePath,test->pipeRequired,test->fileIOType);
+        test = test->next;
+    }
+}
+
+int sizeOfLL(Cmd **header) {
+    int ret = 0;
+    Cmd *test;
+    test = *header;
+    while (test != NULL) {
+        ret++;
+        test = test->next;
+    }
+    return ret;
+}
+
+void insertCommand(Cmd **header, char givenCmd[255], char inpFPath[255], char outFPath[255], int pipeReq, int fileIOType)
 {
-    Command *p, *temp;
+    Cmd *p, *temp;
 
     // create node to insert and assign values to its fields
-    p = (Command *) malloc(sizeof(Command));
+    p = (Cmd *) malloc(sizeof(Cmd));
     strcpy(p->cmd,givenCmd);
-    p->isValid=valid;
+    strcpy(p->inputFilePath,inpFPath);
+    strcpy(p->outputFilePath,outFPath);
+    p->pipeRequired = pipeReq;
+    p->fileIOType = fileIOType;
     p->next=NULL;
 
     // if LL empty
@@ -242,119 +275,6 @@ int contains(char strInp[255], char delimiter[255]) {
     return 0;
 }
 
-// it uses strtok internally but doesnt touch/modify given char array parameter (so this function behaves like pass-by-value like java)
-struct token customStrTok(char str[255], char delim[255]) {
-    struct token mytoken;
-    char tempStr[255];
-    memset(tempStr,'\0', sizeof(tempStr));
-    strcpy(tempStr,str); // abc|xyz
-
-    char *tempStr2 = (char *) malloc(sizeof(char) * strlen(str));
-    strcpy(tempStr2,str);
-    char *strAfterDelim = strstr(tempStr2,delim);
-    if (strAfterDelim != NULL) { // means str contains the given delimiter
-        int delimIndex = (int) (strAfterDelim - tempStr2); // use pointer-arithmetic to find delimiter index
-        int afterDelimIndex = delimIndex + ((int) strlen(delim));
-        char *firstTok = (char *) malloc(sizeof(char) * (delimIndex));
-        strncpy(firstTok,&tempStr[0],(size_t) (delimIndex));
-        firstTok[delimIndex] = '\0';
-        char *secTok = (char *) malloc(sizeof(char) * (strlen(str) - afterDelimIndex));
-        strncpy(secTok,&tempStr[afterDelimIndex],(strlen(str) - afterDelimIndex));
-        secTok[(strlen(str) - afterDelimIndex)] = '\0';
-        strcpy(mytoken.firstTok,firstTok);
-        strcpy(mytoken.secTok,secTok);
-    }
-    return mytoken;
-}
-
-char *hasOnlyOneDel(char comm[255]) {
-    int i = 0;
-    char del[255];
-    memset(del,'\0', sizeof(del));
-    char tempStr[255];
-    memset(tempStr,'\0', sizeof(tempStr));
-    strcpy(tempStr,comm);
-    if (contains(tempStr,">")) {
-        i++;
-        strcpy(del,">");
-    }
-    if (contains(tempStr,"<")) {
-        i++;
-        strcpy(del,"<");
-    }
-    if (contains(tempStr,"|")) {
-        i++;
-        strcpy(del,"|");
-    }
-    if (contains(tempStr,">>")) {
-        i++;
-        strcpy(del,">>");
-    }
-    if (contains(tempStr,"2>")) {
-        i++;
-        strcpy(del,"2>");
-    }
-    if (i == 1) {
-        char *delimiter = (char *) malloc(sizeof(char) * strlen(del));
-        strcpy(delimiter,del);
-        return delimiter;
-    } else {
-        return NULL;
-    }
-}
-
-
-void parseCmd(char command[255]) {
-    char *c = hasOnlyOneDel(command);
-    if (c != NULL) {
-        struct token tok1 = customStrTok(command,c);
-        if (!strcmp(c,"<")) {
-            insertCmd(&cmdLL,tok1.secTok,1);
-            insertCmd(&cmdLL,tok1.firstTok,1);
-        } else if (!strcmp(c,">>")) {
-            insertCmd(&cmdLL,tok1.firstTok,1);
-            insertCmd(&cmdLL,tok1.secTok,1);
-        } else if (!strcmp(c,"2>")) {
-            insertCmd(&cmdLL,tok1.firstTok,1);
-            insertCmd(&cmdLL,tok1.secTok,1);
-        } else if (!strcmp(c,">")) {
-            insertCmd(&cmdLL,tok1.firstTok,1);
-            insertCmd(&cmdLL,tok1.secTok,1);
-        } else if (!strcmp(c,"|")) {
-            insertCmd(&cmdLL,tok1.firstTok,1);
-            insertCmd(&cmdLL,tok1.secTok,1);
-        }
-        return;
-    }
-    if (!contains(command,"|") && !contains(command,"<")
-        && !contains(command,">") && !contains(command,"2>")
-        && !contains(command,">>")) {
-        insertCmd(&cmdLL,command,1);
-        return;
-    }
-    if (contains(command,"|")) {
-        struct token tokRes1 = customStrTok(command,"|");
-        parseCmd(tokRes1.firstTok);
-        parseCmd(tokRes1.secTok);
-    } else if (contains(command,"2>")) {
-        struct token tokRes2 = customStrTok(command,"2>");
-        parseCmd(tokRes2.firstTok);
-        parseCmd(tokRes2.secTok);
-    } else if (contains(command,">>")) {
-        struct token tokRes2 = customStrTok(command,">>");
-        parseCmd(tokRes2.firstTok);
-        parseCmd(tokRes2.secTok);
-    } else if (contains(command,">")) {
-        struct token tokRes2 = customStrTok(command,">");
-        parseCmd(tokRes2.firstTok);
-        parseCmd(tokRes2.secTok);
-    } else if (contains(command,"<")) {
-        struct token tokRes3 = customStrTok(command,"<");
-        parseCmd(tokRes3.firstTok);
-        parseCmd(tokRes3.secTok);
-    }
-}
-
 char *arrToStr(char *args[], int size, int beginIndex, int isLastIndex) {
     int lastIndex = size;
     if (isLastIndex != -1) { // if last index is supplied to function 
@@ -508,53 +428,48 @@ void executeCmd(struct arrToken arrtok) {
 
 	if (binaryPath != NULL) {
 		// execute it
-		childpid = fork();
-		if (childpid == 0) {
-			execl(binaryPath, binaryName, arrtok.elements[1], arrtok.elements[2], 
-							arrtok.elements[3], arrtok.elements[4],
-							arrtok.elements[5], arrtok.elements[6],
-							arrtok.elements[7], arrtok.elements[8],
-							arrtok.elements[9], arrtok.elements[10],
-							arrtok.elements[11], arrtok.elements[12],
-							arrtok.elements[13], arrtok.elements[14],
-							arrtok.elements[15], arrtok.elements[16],
-							arrtok.elements[17], arrtok.elements[18],
-							arrtok.elements[19], arrtok.elements[20],
-							arrtok.elements[21], arrtok.elements[22],
-							arrtok.elements[23], arrtok.elements[24],
-							arrtok.elements[25], arrtok.elements[26],
-							arrtok.elements[27], arrtok.elements[28],
-							arrtok.elements[29], arrtok.elements[30],
-							arrtok.elements[31], arrtok.elements[32],
-							arrtok.elements[33], arrtok.elements[34],
-							arrtok.elements[35], arrtok.elements[36],
-							arrtok.elements[37], arrtok.elements[38],
-							arrtok.elements[39], arrtok.elements[40],
-							arrtok.elements[41], arrtok.elements[42],
-							arrtok.elements[43], arrtok.elements[44],
-							arrtok.elements[45], arrtok.elements[46],
-							arrtok.elements[47], arrtok.elements[48],
-							arrtok.elements[49], arrtok.elements[50],
-							arrtok.elements[51], arrtok.elements[52],
-							arrtok.elements[53], arrtok.elements[54],
-							arrtok.elements[55], arrtok.elements[56],
-							arrtok.elements[57], arrtok.elements[58],
-							arrtok.elements[59], arrtok.elements[60],
-							arrtok.elements[61], arrtok.elements[62],
-							arrtok.elements[63], arrtok.elements[64],
-							arrtok.elements[65], arrtok.elements[66],
-							arrtok.elements[67], arrtok.elements[68],
-							arrtok.elements[69], arrtok.elements[70],
-							arrtok.elements[71], arrtok.elements[72],
-							arrtok.elements[73], arrtok.elements[74],
-							arrtok.elements[75], arrtok.elements[76],
-							arrtok.elements[77], arrtok.elements[78],
-							arrtok.elements[79]);
+		execl(binaryPath, binaryName, arrtok.elements[1], arrtok.elements[2], 
+						arrtok.elements[3], arrtok.elements[4],
+						arrtok.elements[5], arrtok.elements[6],
+						arrtok.elements[7], arrtok.elements[8],
+						arrtok.elements[9], arrtok.elements[10],
+						arrtok.elements[11], arrtok.elements[12],
+						arrtok.elements[13], arrtok.elements[14],
+						arrtok.elements[15], arrtok.elements[16],
+						arrtok.elements[17], arrtok.elements[18],
+						arrtok.elements[19], arrtok.elements[20],
+						arrtok.elements[21], arrtok.elements[22],
+						arrtok.elements[23], arrtok.elements[24],
+						arrtok.elements[25], arrtok.elements[26],
+						arrtok.elements[27], arrtok.elements[28],
+						arrtok.elements[29], arrtok.elements[30],
+						arrtok.elements[31], arrtok.elements[32],
+						arrtok.elements[33], arrtok.elements[34],
+						arrtok.elements[35], arrtok.elements[36],
+						arrtok.elements[37], arrtok.elements[38],
+						arrtok.elements[39], arrtok.elements[40],
+						arrtok.elements[41], arrtok.elements[42],
+						arrtok.elements[43], arrtok.elements[44],
+						arrtok.elements[45], arrtok.elements[46],
+						arrtok.elements[47], arrtok.elements[48],
+						arrtok.elements[49], arrtok.elements[50],
+						arrtok.elements[51], arrtok.elements[52],
+						arrtok.elements[53], arrtok.elements[54],
+						arrtok.elements[55], arrtok.elements[56],
+						arrtok.elements[57], arrtok.elements[58],
+						arrtok.elements[59], arrtok.elements[60],
+						arrtok.elements[61], arrtok.elements[62],
+						arrtok.elements[63], arrtok.elements[64],
+						arrtok.elements[65], arrtok.elements[66],
+						arrtok.elements[67], arrtok.elements[68],
+						arrtok.elements[69], arrtok.elements[70],
+						arrtok.elements[71], arrtok.elements[72],
+						arrtok.elements[73], arrtok.elements[74],
+						arrtok.elements[75], arrtok.elements[76],
+						arrtok.elements[77], arrtok.elements[78],
+						arrtok.elements[79]);
 
-			printf("Failed to exec %s\n",binaryName);
-		} else if (childpid > 0) {
-			wait(NULL);
-		}
+		printf("Failed to exec %s\n",binaryName);
 	} else {
 		// TODO given binary not found in PATH environments, error out
 		printf("Failed to exec %s, binary path is not found on PATH environment\n",binaryName);
@@ -634,19 +549,132 @@ void setup(char inputBuffer[], char *args[],int *background, char copyOfInput[],
      args[ct] = NULL; /* just in case the input line was > 80 */
 
      if (DEBUGGABLE) {
-	     for (i = 0; i <= ct; i++)
+	     for (i = 0; i < ct; i++)
 		printf("args %d = %s\n",i,args[i]);
      }
 
 
 } /* end of setup routine */
 
+void execute(Cmd **header) {
+	Cmd *test;
+	test = *header;
+	int sizeOfCmdList = sizeOfLL(&commandLL);
+
+	pid_t childpid = 0;
+	int pipeCounter = 0;
+	int pipeFd[sizeOfCmdList-1][2];
+
+	for (int i = 0; i < sizeOfCmdList; i++) {
+		if (i < sizeOfCmdList-1) {
+			pipe(pipeFd[pipeCounter]);
+		}
+
+		char command[255];
+		char fInPath[255];
+		char fOutPath[255];
+		strcpy(command,test->cmd);
+		strcpy(fInPath,test->inputFilePath);
+		strcpy(fOutPath,test->outputFilePath);
+		int pipeReq = test->pipeRequired;
+		int fIOType = test->fileIOType;
+
+		if ((childpid = fork()) == 0) { // if its child break the loop and exit, otherwise if its main process(parent), dont break
+			if (i == 0) { // first process first cmd
+				if (fIOType == 1) {
+					int fileDesc = openFile(fInPath, 0); // read
+					dup2(fileDesc, STDIN_FILENO);
+					close(fileDesc);
+				} else if (fIOType == 2) {
+					int fileDesc = openFile(fOutPath, 1); // write-overwrite
+					dup2(fileDesc, STDOUT_FILENO);
+					close(fileDesc);
+				} else 	if (fIOType == 3) {
+					int fileDesc = openFile(fOutPath, 2); // write-append
+					dup2(fileDesc, STDOUT_FILENO);
+					close(fileDesc);
+				} else 	if (fIOType == 4) {
+					int fileDesc = openFile(fOutPath, 0); // write-err
+					dup2(fileDesc, STDERR_FILENO);
+					close(fileDesc);
+				} else 	if (fIOType == 5) {
+					int fileDesc1 = openFile(fInPath, 0);
+					dup2(fileDesc1, STDIN_FILENO);
+					close(fileDesc1);
+					int fileDesc2 = openFile(fOutPath, 2); // read and write-overwrite
+					dup2(fileDesc1, STDOUT_FILENO);
+					close(fileDesc2);
+				} else 	if (fIOType == 6) {
+					int fileDesc1 = openFile(fInPath, 0);
+					dup2(fileDesc1, STDIN_FILENO);
+					close(fileDesc1);
+					int fileDesc2 = openFile(fOutPath, 3); // read and write-append
+					dup2(fileDesc2, STDOUT_FILENO);
+					close(fileDesc2);
+				} else 	if (fIOType == 7) {
+					int fileDesc1 = openFile(fInPath, 0);
+					dup2(fileDesc1, STDIN_FILENO);
+					close(fileDesc1);
+					int fileDesc2 = openFile(fOutPath, 2); // read and write-err
+					dup2(fileDesc2, STDERR_FILENO);
+					close(fileDesc2);
+				}
+				if (pipeReq == 1) { // if pipe required
+					// outputunu pipe'in outputuna kopyala
+					dup2(pipeFd[pipeCounter][1], STDOUT_FILENO);
+					// close
+					close(pipeFd[pipeCounter][0]);
+					close(pipeFd[pipeCounter][1]);
+				}
+			} else if (i == sizeOfCmdList-1) { // last process last cmd
+				// inputunu pipe'in inputuna kopyala
+				dup2(pipeFd[pipeCounter-1][0], STDIN_FILENO);
+				// close
+				close(pipeFd[pipeCounter-1][0]);
+				close(pipeFd[pipeCounter-1][1]);
+				if (fIOType == 2) {
+					int fileDesc = openFile(fOutPath, 1); // open file desc in 1==writeOverwrite and copy it to stdout and then close file desc
+					dup2(fileDesc, STDOUT_FILENO);
+					close(fileDesc);
+				} else 	if (fIOType == 3) {
+					int fileDesc = openFile(fOutPath, 2); // open file desc in 2==writeAppend and copy it to stdout and then close file desc
+					dup2(fileDesc, STDOUT_FILENO);
+					close(fileDesc);
+				}
+			} else { // middle processes, middle commands
+				// hem input hem outputunu kopyala
+				dup2(pipeFd[pipeCounter-1][0], STDIN_FILENO);
+				dup2(pipeFd[pipeCounter][1], STDOUT_FILENO);
+				// close
+				close(pipeFd[pipeCounter][0]);
+				close(pipeFd[pipeCounter][1]);
+				close(pipeFd[pipeCounter-1][0]);
+				close(pipeFd[pipeCounter-1][1]);
+			}
+			executeCmd(strToArr(command));
+			perror("buraya gelme\n");
+		} else if (childpid == -1) {
+			perror("error while creating child proc\n");
+		} else {
+			if(i > 0){
+				close(pipeFd[pipeCounter-1][0]);
+				close(pipeFd[pipeCounter-1][1]);
+			}
+			pipeCounter++;
+			test = test->next;
+		}
+	}
+	wait(NULL);
+}
+
+
 int checkBeforeExit() {
 	// TODO Check if there is atleast one background process, if so, then don't exit, just warn the user
 }
- 
+
 int main(void)
 {
+	/* TODO x
 	    struct sigaction ctrlCaction;
 	    ctrlCaction.sa_handler = checkBeforeExit;
 	    ctrlCaction.sa_flags = 0;
@@ -658,11 +686,11 @@ int main(void)
 
 	    int isShellRunning = 1;
 	    AliasElement *test1;
-            char inputBuffer[MAX_LINE]; /*buffer to hold command entered */
+            char inputBuffer[MAX_LINE]; //buffer to hold command entered
             char userEnteredInput[255];
 	    memset(userEnteredInput, '\0', sizeof(userEnteredInput));
-            int background; /* equals 1 if a command is followed by '&' */
-            char *args[MAX_LINE/2 + 1]; /*command line arguments */
+            int background; // equals 1 if a command is followed by '&'
+            char *args[MAX_LINE/2 + 1]; //command line arguments
             while (isShellRunning){
                         background = 0; // clear variable
 			memset(userEnteredInput,'\0',sizeof(userEnteredInput)); // clear variable
@@ -672,15 +700,15 @@ int main(void)
 			memset(inputBuffer,'\0',sizeof(inputBuffer)); // clear variable
                         printf("myshell: ");
 			fflush(stdout);
-                        /*setup() calls exit() when Control-D is entered */
+                        //setup() calls exit() when Control-D is entered
 			fflush(stdin);
                         setup(inputBuffer, args, &background, userEnteredInput, 0);
  			fflush(stdin);
-                        /** the steps are:
-                        (1) fork a child process using fork()
-                        (2) the child process will invoke execv()
-						(3) if background == 0, the parent will wait,
-                        otherwise it will invoke the setup() function again. */
+                        // the steps are:
+                        // (1) fork a child process using fork()
+                        // (2) the child process will invoke execv()
+			//			(3) if background == 0, the parent will wait,
+                        // otherwise it will invoke the setup() function again.
 
 			int argumentSize = argSize(args); // parse by ' ', '\t'
 			if (DEBUGGABLE) {
@@ -727,7 +755,7 @@ int main(void)
 			argumentSize = argSize(args); // parse by ' ', '\t'
 			cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
-			/************ START EXECUTION STAGE OF COMMANDS ******/
+			////////////////// START EXECUTION STAGE OF COMMANDS /////////////////
 			if (argumentSize >= 1) {
 				if (!strcmp(args[0],"alias")) {
 					if (args[1] != NULL) {
@@ -767,24 +795,30 @@ int main(void)
 							}
 						} else {
 							//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
-							/* we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>')
-							 so we DONT NEED any pipe or redirect, 
-							so just bridge it to exec function */
+							// we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>')
+							// so we DONT NEED any pipe or redirect, 
+							// so just bridge it to exec function 
 							executeCmd(strToArr(userEnteredInput));
 						}
 					} else if (cmdSize == 2) {
-						/* it means we have exactly=1 delimiter('<', '>', '|', '>>', '2>') 
-						so piping/duping is required */
+						// it means we have exactly=1 delimiter('<', '>', '|', '>>', '2>') 
+						// so piping/duping is required
 						// TODO we NEED piping or redirecting
 						
 					} else {
-						/* it means we have more than>1 delimiter('<', '>', '|', '>>', '2>') 
-						so piping/duping is required */
+						// it means we have more than>1 delimiter('<', '>', '|', '>>', '2>') 
+						// so piping/duping is required
 						// TODO we NEED piping or redirecting
 					}
 				}
 			}
             }
+TODO x */
+	insertCommand(&commandLL,"sort -n","file1.txt","",1,1);
+	insertCommand(&commandLL,"wc","","file2.txt",0,2);
 
-	    return 0;
+
+
+
+	return 0;
 }
