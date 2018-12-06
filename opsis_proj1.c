@@ -48,6 +48,30 @@ struct nodeAlias {
 typedef struct nodeAlias AliasElement;
 AliasElement *aliasLL = NULL;
 
+char *trimWhiteSpace(char *str)
+{
+    char *end;
+
+    // Trim leading space
+    while(isspace((unsigned char)*str)) {
+        str++;
+    }
+
+    if(*str == 0)  // All spaces?
+        return str;
+
+    // Trim trailing space
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) {
+        end--;
+    }
+
+    // Write new null terminator character
+    end[1] = '\0';
+
+    return str;
+}
+
 int isEmpty(char *inpStr) {
     if (strlen(inpStr) == 0) {
         return 1;
@@ -458,11 +482,9 @@ void executeCmd(struct arrToken arrtok) {
 						arrtok.elements[75], arrtok.elements[76],
 						arrtok.elements[77], arrtok.elements[78],
 						arrtok.elements[79]);
-
-		printf("Failed to exec %s\n",binaryName);
 	} else {
 		// TODO given binary not found in PATH environments, error out
-		printf("Failed to exec %s, binary path is not found on PATH environment\n",binaryName);
+		perror("Failed to exec, binary is not found on PATH environment\n");
 	}
 }
  
@@ -734,7 +756,7 @@ void execute(Cmd **header) {
 				close(pipeFd[pipeCounter-1][0]);
 				close(pipeFd[pipeCounter-1][1]);
 			}
-			executeCmd(strToArr(command)); // TODO XXX trim trailing/ending whitespace of 'command'
+			executeCmd(strToArr(trimWhiteSpace(command)));
 			perror("Failed to execute command in executeCmd(...)\n");
 		} else if (childpid == -1) {
 			perror("Error while creating child process\n");
@@ -757,142 +779,137 @@ int checkBeforeExit() {
 
 int main(void)
 {
-	/* TODO x
-	    struct sigaction ctrlCaction;
-	    ctrlCaction.sa_handler = checkBeforeExit;
-	    ctrlCaction.sa_flags = 0;
+	struct sigaction ctrlCaction;
+	ctrlCaction.sa_handler = checkBeforeExit;
+	ctrlCaction.sa_flags = 0;
 
-	    if (sigemptyset(&ctrlCaction.sa_mask) == -1 || sigaction(SIGINT, &ctrlCaction, NULL) == -1) { // initialize ctrl-c(SIGINT) signal catcher
+	if (sigemptyset(&ctrlCaction.sa_mask) == -1 || sigaction(SIGINT, &ctrlCaction, NULL) == -1) { // initialize ctrl-c(SIGINT) signal catcher
 		perror("Failed to initialize signal set");
 		exit(1);
-	    }
+	}
 
-	    int isShellRunning = 1;
-	    AliasElement *test1;
-            char inputBuffer[MAX_LINE]; //buffer to hold command entered
-            char userEnteredInput[255];
-	    memset(userEnteredInput, '\0', sizeof(userEnteredInput));
-            int background; // equals 1 if a command is followed by '&'
-            char *args[MAX_LINE/2 + 1]; //command line arguments
-            while (isShellRunning){
-			int argumentSize = 0;
-                        background = 0; // clear variable
-			memset(userEnteredInput,'\0',sizeof(userEnteredInput)); // clear variable
-			for (int t = 0; t < MAX_LINE/2 + 1; t++) {
-				args[t] = NULL; // NULL-ify all the elements of array (initialization)
+	int isShellRunning = 1;
+	AliasElement *test1;
+	char inputBuffer[MAX_LINE]; //buffer to hold command entered
+	int background; // equals 1 if a command is followed by '&'
+	char *args[MAX_LINE/2 + 1]; //command line arguments
+	while (isShellRunning) {
+		int argumentSize = 0;
+		background = 0; // clear variable
+		for (int t = 0; t < MAX_LINE/2 + 1; t++) {
+			args[t] = NULL; // NULL-ify all the elements of array (initialization)
+		}
+		memset(inputBuffer,'\0',sizeof(inputBuffer)); // clear variable
+		printf("myshell: ");
+		fflush(stdout);
+		//setup() calls exit() when Control-D is entered
+		fflush(stdin);
+		setup(inputBuffer, args, &argumentSize, &background, 0);
+		fflush(stdin);
+		// the steps are:
+		// (1) fork a child process using fork()
+		// (2) the child process will invoke execv()
+		//			(3) if background == 0, the parent will wait,
+		// otherwise it will invoke the setup() function again.
+
+		int cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
+
+		int isAliasDetectRequired = 1;
+		if (argumentSize >= 1) {
+			if (!strcmp(args[0],"alias")) {
+				// command starts with "alias ....blabla"
+				//so "alias detect operation" will not be used
+				// instead "alias add operation" will be used
+				isAliasDetectRequired = 0;
 			}
-			memset(inputBuffer,'\0',sizeof(inputBuffer)); // clear variable
-                        printf("myshell: ");
-			fflush(stdout);
-                        //setup() calls exit() when Control-D is entered
-			fflush(stdin);
-                        setup(inputBuffer, args, &argumentSize, &background, userEnteredInput, 0);
- 			fflush(stdin);
-                        // the steps are:
-                        // (1) fork a child process using fork()
-                        // (2) the child process will invoke execv()
-			//			(3) if background == 0, the parent will wait,
-                        // otherwise it will invoke the setup() function again.
+		}
 
-			int cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
-
-			int isAliasDetectRequired = 1;
-			if (argumentSize >= 1) {
-				if (!strcmp(args[0],"alias")) {
-					// command starts with "alias ....blabla"
-					//so "alias detect operation" will not be used
-					// instead "alias add operation" will be used
-					isAliasDetectRequired = 0;
-				}
-			}
-
-			if (isAliasDetectRequired == 1) {
-				// ******* ALIAS DETECTION AND HANDLING START ********* 
-				int hasAlias = 0;
-				for (int i = 0; i < argumentSize; i++) {
-					test1 = aliasLL;
-					while (test1 != NULL) {
-						if (!strcmp(args[i], test1->fakeCmd)) {
-							strcpy(args[i], test1->realCmd); // replace fakeCmd with the realCmd in argument array
-							hasAlias = 1;
-						}
-						test1 = test1->next;
+		if (isAliasDetectRequired == 1) {
+			// ******* ALIAS DETECTION AND HANDLING START ********* 
+			int hasAlias = 0;
+			for (int i = 0; i < argumentSize; i++) {
+				test1 = aliasLL;
+				while (test1 != NULL) {
+					if (!strcmp(args[i], test1->fakeCmd)) {
+						strcpy(args[i], test1->realCmd); // replace fakeCmd with the realCmd in argument array
+						hasAlias = 1;
 					}
+					test1 = test1->next;
 				}
-				if (hasAlias == 1) {
-					char *newInputBuffer = arrToStr(args, argumentSize, 0, -1); // convert the new argument array to charArray(so string)
-					int sizeOfNewInputBuffer = strlen(newInputBuffer);
-					char *tempStr = (char *) malloc(sizeof(char) * (sizeOfNewInputBuffer + 1)); // +1 for \n
-					strcpy(inputBuffer,newInputBuffer); // and copy that new charArray/string into inputBuffer
-					inputBuffer[sizeOfNewInputBuffer++] = '\n'; // put \n to make it like user entered input
-					inputBuffer[sizeOfNewInputBuffer] = '\0'; // put termination-char to make it C-string
-					setup(inputBuffer, args, &argumentSize, &background, userEnteredInput, 1); // pass that string to setup() func again
-				}
-				// ******* ALIAS DETECTION AND HANDLING END *********
 			}
+			if (hasAlias == 1) {
+				char *newInputBuffer = arrToStr(args, argumentSize, 0, -1); // convert the new argument array to charArray(so string)
+				int sizeOfNewInputBuffer = strlen(newInputBuffer);
+				char *tempStr = (char *) malloc(sizeof(char) * (sizeOfNewInputBuffer + 1)); // +1 for \n
+				strcpy(inputBuffer,newInputBuffer); // and copy that new charArray/string into inputBuffer
+				inputBuffer[sizeOfNewInputBuffer++] = '\n'; // put \n to make it like user entered input
+				inputBuffer[sizeOfNewInputBuffer] = '\0'; // put termination-char to make it C-string
+				setup(inputBuffer, args, &argumentSize, &background, 1); // pass that string to setup() func again
+			}
+			// ******* ALIAS DETECTION AND HANDLING END *********
+		}
 
-			// update cmdSize again (after handling aliased commands) 
-			cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
+		// update cmdSize again (after handling aliased commands) 
+		cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
-			////////////////// START EXECUTION STAGE OF COMMANDS /////////////////
-			if (argumentSize >= 1) {
-				if (!strcmp(args[0],"alias")) {
-					if (args[1] != NULL) {
-						if (!strcmp(args[1],"-l")) {
-							list_aliased_cmds(); // List aliased cmds
-						} else if (argumentSize >= 3) {
-							char cmdWillBeAliased[255];
-							memset(cmdWillBeAliased, '\0', sizeof(cmdWillBeAliased));
-							strcpy(cmdWillBeAliased, arrToStr(args, argumentSize, 1, argumentSize - 1)); // make "quoted real cmd" string from args double-arr and copy it to temp string
-							trimQuotes(cmdWillBeAliased); // trim quotes of alias cmd to get real cmd
-							if (!strcmp(cmdWillBeAliased,"alias") || !strcmp(args[argumentSize - 1], "alias")) { // don't allow aliasing "alias" command which can create problems
-								printf("You can't alias \"alias\" command\n");
-							} else {
-								insertAlias(&aliasLL, args[argumentSize - 1], cmdWillBeAliased);
-							}
+		////////////////// START EXECUTION STAGE OF COMMANDS /////////////////
+		if (argumentSize >= 1) {
+			if (!strcmp(args[0],"alias")) {
+				if (args[1] != NULL) {
+					if (!strcmp(args[1],"-l")) {
+						list_aliased_cmds(); // List aliased cmds
+					} else if (argumentSize >= 3) {
+						char cmdWillBeAliased[255];
+						memset(cmdWillBeAliased, '\0', sizeof(cmdWillBeAliased));
+						strcpy(cmdWillBeAliased, arrToStr(args, argumentSize, 1, argumentSize - 1)); // make "quoted real cmd" string from args double-arr and copy it to temp string
+						trimQuotes(cmdWillBeAliased); // trim quotes of alias cmd to get real cmd
+						if (!strcmp(cmdWillBeAliased,"alias") || !strcmp(args[argumentSize - 1], "alias")) { // don't allow aliasing "alias" command which can create problems
+							printf("You can't alias \"alias\" command\n");
 						} else {
-							printf("Wrong alias usage, alias usage:\n	$myshell: alias \"ls -l\" list\n");
+							insertAlias(&aliasLL, args[argumentSize - 1], cmdWillBeAliased);
 						}
+					} else {
+						printf("Wrong alias usage, alias usage:\n	$myshell: alias \"ls -l\" list\n");
 					}
-				} else if (!strcmp(args[0],"unalias")) {
-					if (args[1] != NULL) {
-						removeAlias(&aliasLL, args[1]);
-					}
-				} else {
-					if (cmdSize == 1) { // it means we have only single command(command can be single-arg or multi-arg)
-						if (argumentSize == 1) {
-							//it means we have single-arg single command (e.g "exit", "clear" etc.)
-							if (!strcmp(args[0], "clr")) {
-								system("clear");
-							} else if (!strcmp(args[0], "exit")) {
-								checkBeforeExit();
-							} else if (!strcmp(args[0], "fg")) {
-								// TODO make background process foreground (one-by-one)
-							} else {
-								// other commands, bridge it to exec function
-								executeCmd(strToArr(userEnteredInput));
-							}
+				}
+			} else if (!strcmp(args[0],"unalias")) {
+				if (args[1] != NULL) {
+					removeAlias(&aliasLL, args[1]);
+				}
+			} else {
+				if (cmdSize == 1) { // it means we have only single command(command can be single-arg or multi-arg)
+					if (argumentSize == 1) {
+						//it means we have single-arg single command (e.g "exit", "clear" etc.)
+						if (!strcmp(args[0], "clr")) {
+							system("clear");
+						} else if (!strcmp(args[0], "exit")) {
+							checkBeforeExit();
+						} else if (!strcmp(args[0], "fg")) {
+							// TODO make background process foreground (one-by-one)
 						} else {
-							//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
-							// we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>')
-							// so we DONT NEED any pipe or redirect, 
-							// so just bridge it to exec function 
+							// other commands, bridge it to exec function
 							executeCmd(strToArr(userEnteredInput));
 						}
-					} else if (cmdSize == 2) {
-						// it means we have exactly=1 delimiter('<', '>', '|', '>>', '2>') 
-						// so piping/duping is required
-						// TODO we NEED piping or redirecting
-						
 					} else {
-						// it means we have more than>1 delimiter('<', '>', '|', '>>', '2>') 
-						// so piping/duping is required
-						// TODO we NEED piping or redirecting
+						//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
+						// we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>')
+						// so we DONT NEED any pipe or redirect, 
+						// so just bridge it to exec function 
+						executeCmd(strToArr(userEnteredInput));
 					}
+				} else if (cmdSize == 2) {
+					// it means we have exactly=1 delimiter('<', '>', '|', '>>', '2>') 
+					// so piping/duping is required
+					// TODO we NEED piping or redirecting
+					
+				} else {
+					// it means we have more than>1 delimiter('<', '>', '|', '>>', '2>') 
+					// so piping/duping is required
+					// TODO we NEED piping or redirecting
 				}
 			}
-            }
-TODO x */
+		}
+	}
 	insertCommand(&commandLL,"sort -n","file1.txt","",1,1);
 	insertCommand(&commandLL,"wc","","file2.txt",0,2);
 
