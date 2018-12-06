@@ -717,12 +717,23 @@ void execute(Cmd **header) {  // execute() will execute commands in the &command
 	wait(NULL);
 }
 
+int isRedPipDelimiter(char *str) { // it checks if given string is equal to redirect/pipe delimiters ('<', '>', '>>', '2>', '|')
+    if (!strcmp(str, "<") || !strcmp(str, ">") ||
+            !strcmp(str, ">>") || !strcmp(str, "2>") ||
+            !strcmp(str, "|")) {
+        return 1;
+    }
+    return 0;
+}
+
 /* The setup function below will not return any value, but it will just: read
    in the next command line; separate it into distinct arguments (using blanks as
    delimiters), and set the args array entries to point to the beginning of what
    will become null-terminated, C-style strings. */
 
-void setup(char inputBuffer[], char *args[],int *argsLenght, int *background, int isStrSupplied) {
+// It returns 1 if given user entered command is correct, otherwise returns 0
+int setup(char inputBuffer[], char *args[],int *argsLenght, int *background, int isStrSupplied) {
+    int ret = 1; // return value, default is 1 (so given cmd is correct)
     int length = 0; // # of characters in the command line
     int i = 0;      // loop index for accessing inputBuffer array
     int start = -1;  // index where beginning of next command parameter is
@@ -780,13 +791,44 @@ void setup(char inputBuffer[], char *args[],int *argsLenght, int *background, in
 		if (start == -1) {
 		    start = i;
                 }
-                if (inputBuffer[i] == '&') { // Add check for that the (&) symbol MUST be the last argument (always)
-		    *background  = 1;
-                    inputBuffer[i-1] = '\0';
-		}
 	} /* end of switch */
      }    /* end of for */
      args[ct] = NULL; /* just in case the input line was > 80 */
+	
+    // ERROR CHECK, check if redirect/pipe delimiters is not on 1sth arg and last arg (çünkü sağı solu dolu olması gerek)
+    if (args[0] != NULL) {
+        if (isRedPipDelimiter(args[0]) || isRedPipDelimiter(args[ct - 1])) {
+            ret = 0;
+        }
+    }
+
+    if (ret == 1) { // if cmd is still correct, test next error check
+        // 2nd ERROR CHECK, check if 2 redirect/pipe delimiters ('<', '>', '>>', '2>', '|') are not successive(peşpeşe)
+        for (i = 0; i < ct; i++) {
+            if (i + 1 < ct) {
+                if (isRedPipDelimiter(args[i]) && isRedPipDelimiter(args[i + 1])) {
+                    ret = 0;
+                }
+            }
+        }
+    }
+
+    if (ret == 1) { // if cmd is still correct, test next error check
+        // 3rd ERROR CHECK, check if atleast one arg is equal to "&" and its last argument
+        for (i = 0; i < ct; i++) {
+            if (!strcmp(args[i], "&")) { // its equal to "&"
+                if (i == ct - 1) { // "&" is on last element (correct input command)
+                    args[--ct] = NULL; // both decrease ct and NULL (so delete) arg which contains "&"
+                    *background = 1; // set background to 1
+                    ret = 1;
+                    break;
+                } else { // "&" is not on last element (wrong input command)
+                    ret = 0;
+                    break;
+                }
+            }
+        }
+    }
 
      if (DEBUGGABLE) {
 	     for (i = 0; i < ct; i++)
@@ -794,6 +836,8 @@ void setup(char inputBuffer[], char *args[],int *argsLenght, int *background, in
      }
 
      *argsLenght = ct; // save argument size
+	
+    return ret;
 }
 
 void checkBeforeExit() {
