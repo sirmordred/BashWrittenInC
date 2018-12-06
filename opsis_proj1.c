@@ -840,10 +840,10 @@ int main(void) {
 
 		int isAliasDetectRequired = 1;
 		if (argumentSize >= 1) {
-			if (!strcmp(args[0],"alias")) {
-				// command starts with "alias ....blabla"
+			if (!strcmp(args[0],"alias") || !strcmp(args[0],"unalias")) {
+				// command starts with "alias ....blabla" OR "unalias ....blabla"
 				//so "alias detect operation" will not be used
-				// instead "alias add operation" will be used
+				// instead "alias add operation OR unalias remove operation" will be used
 				isAliasDetectRequired = 0;
 			}
 		}
