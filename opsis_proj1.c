@@ -105,6 +105,24 @@ int sizeOfLL(Cmd **header) {
     return ret;
 }
 
+/* Function to delete the entire linked list */
+void deleteLL(Cmd** head_ref)
+{
+    /* deref head_ref to get the real head */
+    Cmd* current = *head_ref;
+    Cmd* next;
+
+    while (current != NULL) {
+        next = current->next;
+        free(current);
+        current = next;
+    }
+
+    /* deref head_ref to affect the real head back
+       in the caller. */
+    *head_ref = NULL;
+}
+
 void insertCommand(Cmd **header, char givenCmd[255], char inpFPath[255], char outFPath[255], int pipeReq, int fileIOType)
 {
     Cmd *p, *temp;
@@ -893,7 +911,7 @@ int main(void)
 							// other commands, bridge it to exec function
 							parseCommand(args, argumentSize);
 							execute(&commandLL);
-							// TODO delete whole &commandLL linkedlist
+							delete(&commandLL);
 						}
 					} else {
 						//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
@@ -902,15 +920,15 @@ int main(void)
 						// so just bridge it to exec function 
 						parseCommand(args, argumentSize);
 						execute(&commandLL);
-						// TODO delete whole &commandLL linkedlist
+						delete(&commandLL);
 					}
 				} else {
 					// it means we have exactly=1 or more than>1 delimiter('<', '>', '|', '>>', '2>') 
 					// so piping/duping is required
-					// TODO we NEED piping or redirecting
+					// we NEED piping or redirecting
 					parseCommand(args, argumentSize);
 					execute(&commandLL);
-					// TODO delete whole &commandLL linkedlist
+					delete(&commandLL);
 				}
 			}
 		}
