@@ -13,9 +13,15 @@
 #include <time.h>
 #include <fcntl.h>
 
-#define DEBUGGABLE 1
+// File_Flags used in openFile() method
+#define CREATE_FLAG_OW (O_RDWR | O_CREAT | O_TRUNC) // overwrite
+#define CREATE_FLAG_AD (O_RDWR | O_CREAT | O_APPEND) // append
+#define CREATE_MODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH) 
+
 #define MAX_LINE 80 /* 80 chars per line, per command, should be enough. */
 int isShellRunning = 1;
+
+#define DEBUGGABLE 1
 
 struct arrToken {
     char *elements[80];
@@ -73,6 +79,42 @@ char *trimWhiteSpace(char *str)
     return str;
 }
 
+void trimQuotes(char *inpStr) {
+	int firstQuoteIndex = -1;
+	int secQuoteIndex = -1;
+	for (int i = 0; i < strlen(inpStr); i++) {
+		if (inpStr[i] == '"') {
+			firstQuoteIndex = i;
+			break;
+		}
+	}
+	for (int h = strlen(inpStr) - 1; h >= 0; h--) {
+		if (inpStr[h] == '"') {
+			secQuoteIndex = h;
+			break;
+		}
+	}
+	if (firstQuoteIndex != -1 && secQuoteIndex != -1) {
+		for (int j = firstQuoteIndex; j <= secQuoteIndex; j++) {
+			if (j == secQuoteIndex) { // "abc" do not swap 'c' with '"' (so secQuoteIndex - 1)
+				inpStr[j-1] = '\0';
+			} else {
+				inpStr[j] = inpStr[j+1];
+			}
+		}
+	}
+}
+
+int contains(char strInp[255], char delimiter[255]) {
+    char tempStr[255];
+    memset(tempStr,'\0', sizeof(tempStr));
+    strcpy(tempStr,strInp);
+    if (strstr(tempStr, delimiter) != NULL) {
+        return 1;
+    }
+    return 0;
+}
+
 int isEmpty(char *inpStr) {
     if (strlen(inpStr) == 0) {
         return 1;
@@ -85,22 +127,22 @@ void makeEmpty(char *inpStr) {
 }
 
 void listCommands(Cmd **header) {
-    Cmd *test;
-    test = *header;
-    while (test != NULL) {
+    Cmd *tempPtr;
+    tempPtr = *header;
+    while (tempPtr != NULL) {
         printf("cmd: %s inputFilePath: %s outputFilePath: %s pipeReq: %d fileIOType: %d\n",
-                test->cmd,test->inputFilePath,test->outputFilePath,test->pipeRequired,test->fileIOType);
-        test = test->next;
+                tempPtr->cmd,tempPtr->inputFilePath,tempPtr->outputFilePath,tempPtr->pipeRequired,tempPtr->fileIOType);
+        tempPtr = tempPtr->next;
     }
 }
 
 int sizeOfLL(Cmd **header) {
     int ret = 0;
-    Cmd *test;
-    test = *header;
-    while (test != NULL) {
+    Cmd *tempPtr;
+    tempPtr = *header;
+    while (tempPtr != NULL) {
         ret++;
-        test = test->next;
+        tempPtr = tempPtr->next;
     }
     return ret;
 }
@@ -181,32 +223,32 @@ void insertProcess(ProcessElement **header, pid_t pidValue, int execType) // 0 =
 void insertAlias(AliasElement **header, char fakeCmd[255], char realCmd[255])
 {
     // check existent alias before, if it has, just update the node
-    AliasElement *testIter;
-    testIter = *header;
-    while (testIter != NULL) {
-	if (!strcmp(testIter->fakeCmd,fakeCmd) && !strcmp(testIter->realCmd,realCmd)) { // same realCmd, same fakeCmd so same alias, print info to user that it has already aliased
+    AliasElement *tempAliasPtr;
+    tempAliasPtr = *header;
+    while (tempAliasPtr != NULL) {
+	if (!strcmp(tempAliasPtr->fakeCmd,fakeCmd) && !strcmp(tempAliasPtr->realCmd,realCmd)) { // same realCmd, same fakeCmd so same alias, print info to user that it has already aliased
 		printf("Entered aliased command is already exist, you can check out with \"alias -l\" (without quotes)\n");
 		return; // and return
 	}
-        testIter = testIter->next;
+        tempAliasPtr = tempAliasPtr->next;
     }
 
-    testIter = *header;
-    while (testIter != NULL) {
-	if (!strcmp(testIter->realCmd,realCmd)) { // if real commands matches (so aliased cmd is already exist)
-		strcpy(testIter->fakeCmd,fakeCmd); // just update the node's fake cmd
+    tempAliasPtr = *header;
+    while (tempAliasPtr != NULL) {
+	if (!strcmp(tempAliasPtr->realCmd,realCmd)) { // if real commands matches (so aliased cmd is already exist)
+		strcpy(tempAliasPtr->fakeCmd,fakeCmd); // just update the node's fake cmd
 		return; // and return
 	}
-        testIter = testIter->next;
+        tempAliasPtr = tempAliasPtr->next;
     }
 
-    testIter = *header;
-    while (testIter != NULL) {
-	if (!strcmp(testIter->fakeCmd,fakeCmd)) { // if fake commands matches (so aliased cmd is already exist)
-		strcpy(testIter->realCmd,realCmd); // just update the node's real cmd
+    tempAliasPtr = *header;
+    while (tempAliasPtr != NULL) {
+	if (!strcmp(tempAliasPtr->fakeCmd,fakeCmd)) { // if fake commands matches (so aliased cmd is already exist)
+		strcpy(tempAliasPtr->realCmd,realCmd); // just update the node's real cmd
 		return; // and return
 	}
-        testIter = testIter->next;
+        tempAliasPtr = tempAliasPtr->next;
     }
 
     AliasElement *p, *temp;
@@ -265,14 +307,23 @@ void removeAlias(AliasElement **head_ref, char fakeCmd[255])
 }
 
 char *hasAlias(char cmd[255]) {
-    AliasElement *test2 = aliasLL;
-    while (test2 != NULL) {
-        if (!strncmp(cmd,test2->fakeCmd,strlen(cmd))) {
-            return test2->realCmd;
+    AliasElement *testPtr = aliasLL;
+    while (testPtr != NULL) {
+        if (!strncmp(cmd,testPtr->fakeCmd,strlen(cmd))) {
+            return testPtr->realCmd;
         }
-        test2 = test2->next;
+        testPtr = testPtr->next;
     }
     return NULL;
+}
+
+void list_aliased_cmds() {
+    AliasElement *testPtr;
+    testPtr = aliasLL;
+    while (testPtr != NULL) {
+        printf("Aliased cmd: %s Equivalent cmd: %s\n",testPtr->fakeCmd, testPtr->realCmd);
+        testPtr = testPtr->next;
+    }
 }
 
 // it parses PATH and gets binary paths and then search given binName in their folder, if it finds return binPath(e.g usr/bin)
@@ -306,16 +357,6 @@ char *getBinaryPath(char binName[255]) {
         ptr = NULL;
     }
     return binPathStr;
-}
-
-int contains(char strInp[255], char delimiter[255]) {
-    char tempStr[255];
-    memset(tempStr,'\0', sizeof(tempStr));
-    strcpy(tempStr,strInp);
-    if (strstr(tempStr, delimiter) != NULL) {
-        return 1;
-    }
-    return 0;
 }
 
 char *arrToStr(char *args[], int size, int beginIndex, int isLastIndex) {
@@ -377,33 +418,7 @@ struct arrToken strToArr(char *cmdStr) {
     return retArr;
 }
 
-void trimQuotes(char *inpStr) {
-	int firstQuoteIndex = -1;
-	int secQuoteIndex = -1;
-	for (int i = 0; i < strlen(inpStr); i++) {
-		if (inpStr[i] == '"') {
-			firstQuoteIndex = i;
-			break;
-		}
-	}
-	for (int h = strlen(inpStr) - 1; h >= 0; h--) {
-		if (inpStr[h] == '"') {
-			secQuoteIndex = h;
-			break;
-		}
-	}
-	if (firstQuoteIndex != -1 && secQuoteIndex != -1) {
-		for (int j = firstQuoteIndex; j <= secQuoteIndex; j++) {
-			if (j == secQuoteIndex) { // "abc" do not swap 'c' with '"' (so secQuoteIndex - 1)
-				inpStr[j-1] = '\0';
-			} else {
-				inpStr[j] = inpStr[j+1];
-			}
-		}
-	}
-}
-
-int commandSize(char *args[], int argsSize) {
+int commandSize(char *args[], int argsSize) { // it check args one-by-one 
 	int count = 1;
 	for (int i = 0; i < argsSize; i++) {
 		if (!strcmp(args[i],"|") || !strcmp(args[i],"<") || !strcmp(args[i],">")
@@ -414,15 +429,12 @@ int commandSize(char *args[], int argsSize) {
 	return count;
 }
 
-#define CREATE_FLAG_OW (O_RDWR | O_CREAT | O_TRUNC) // overwrite
-#define CREATE_FLAG_AD (O_RDWR | O_CREAT | O_APPEND) // append
-#define CREATE_MODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH) 
 /****
  0 for READING MODE
  1 for WRITE-OVERWRITE MODE
  2 for WRITE-APPEND MODE
  
- XXX DO NOT FORGET TO CLOSE RETURNED FILE DESCRIPTOR FROM THIS FUNCTION AFTER DUPLICATING IT WITH dup2()
+ DO NOT FORGET TO CLOSE RETURNED FILE DESCRIPTOR FROM THIS FUNCTION AFTER DUPLICATING IT WITH dup2()
   ****/
 int openFile(char *filePath, int openingType) {
 	int fd = -1; // same as original open() func, it returns -1 as error by default
@@ -438,150 +450,6 @@ int openFile(char *filePath, int openingType) {
 	}
 	return fd;
 }
-
-void list_aliased_cmds() {
-    AliasElement *test;
-    test = aliasLL;
-    while (test != NULL) {
-        printf("Aliased cmd: %s Equivalent cmd: %s\n",test->fakeCmd, test->realCmd);
-        test = test->next;
-    }
-}
-
-void executeCmd(struct arrToken arrtok) {
-	pid_t childpid;
-	char binaryName[255];
-	memset(binaryName,'\0',sizeof(binaryName));
-	strcpy(binaryName, arrtok.elements[0]); // get binary name which will be executed and store it on binaryName
-	
-	// find that binary's path and store it on binaryPath
-	char binaryPath[255];
-	memset(binaryPath,'\0',sizeof(binaryPath));
-	strcpy(binaryPath,getBinaryPath(binaryName));
-
-	if (strlen(binaryPath) > 0) { // check if getBinaryPath() method returns non-empty binary path string
-		// execute it
-		execl(binaryPath, binaryName, arrtok.elements[1], arrtok.elements[2], 
-						arrtok.elements[3], arrtok.elements[4],
-						arrtok.elements[5], arrtok.elements[6],
-						arrtok.elements[7], arrtok.elements[8],
-						arrtok.elements[9], arrtok.elements[10],
-						arrtok.elements[11], arrtok.elements[12],
-						arrtok.elements[13], arrtok.elements[14],
-						arrtok.elements[15], arrtok.elements[16],
-						arrtok.elements[17], arrtok.elements[18],
-						arrtok.elements[19], arrtok.elements[20],
-						arrtok.elements[21], arrtok.elements[22],
-						arrtok.elements[23], arrtok.elements[24],
-						arrtok.elements[25], arrtok.elements[26],
-						arrtok.elements[27], arrtok.elements[28],
-						arrtok.elements[29], arrtok.elements[30],
-						arrtok.elements[31], arrtok.elements[32],
-						arrtok.elements[33], arrtok.elements[34],
-						arrtok.elements[35], arrtok.elements[36],
-						arrtok.elements[37], arrtok.elements[38],
-						arrtok.elements[39], arrtok.elements[40],
-						arrtok.elements[41], arrtok.elements[42],
-						arrtok.elements[43], arrtok.elements[44],
-						arrtok.elements[45], arrtok.elements[46],
-						arrtok.elements[47], arrtok.elements[48],
-						arrtok.elements[49], arrtok.elements[50],
-						arrtok.elements[51], arrtok.elements[52],
-						arrtok.elements[53], arrtok.elements[54],
-						arrtok.elements[55], arrtok.elements[56],
-						arrtok.elements[57], arrtok.elements[58],
-						arrtok.elements[59], arrtok.elements[60],
-						arrtok.elements[61], arrtok.elements[62],
-						arrtok.elements[63], arrtok.elements[64],
-						arrtok.elements[65], arrtok.elements[66],
-						arrtok.elements[67], arrtok.elements[68],
-						arrtok.elements[69], arrtok.elements[70],
-						arrtok.elements[71], arrtok.elements[72],
-						arrtok.elements[73], arrtok.elements[74],
-						arrtok.elements[75], arrtok.elements[76],
-						arrtok.elements[77], arrtok.elements[78],
-						arrtok.elements[79]);
-	} else {
-		perror("Failed to exec, binary is not found on PATH environment\n");
-	}
-}
- 
-/* The setup function below will not return any value, but it will just: read
-in the next command line; separate it into distinct arguments (using blanks as
-delimiters), and set the args array entries to point to the beginning of what
-will become null-terminated, C-style strings. */
-
-void setup(char inputBuffer[], char *args[],int *argsLenght, int *background, int isStrSupplied)
-{
-    int length = 0; /* # of characters in the command line */
-    int i = 0;      /* loop index for accessing inputBuffer array */
-    int start = -1;  /* index where beginning of next command parameter is */
-    int ct = 0;     /* index of where to place the next parameter into args[] */
-        
-    if (isStrSupplied == 1) {
-	// process supplied string
-	length = strlen(inputBuffer);
-    } else {
-    /* read what the user enters on the command line */
-	length = read(STDIN_FILENO,inputBuffer,MAX_LINE);  
-    }
-
-    /* 0 is the system predefined file descriptor for stdin (standard input),
-       which is the user's screen in this case. inputBuffer by itself is the
-       same as &inputBuffer[0], i.e. the starting address of where to store
-       the command that is read, and length holds the number of characters
-       read in. inputBuffer is not a null terminated C-string. */
-
-    if (length == 0)
-        exit(0);            /* ^d was entered, end of user command stream */
-
-/* the signal interrupted the read system call */
-/* if the process is in the read() system call, read returns -1
-  However, if this occurs, errno is set to EINTR. We can check this  value
-  and disregard the -1 value */
-    if ( (length < 0) && (errno != EINTR) ) {
-        perror("error reading the command");
-	exit(-1);           /* terminate with error code of -1 */
-    }
-
-    for (i = 0; i < length; i++) { /* examine every character in the inputBuffer */
-        switch (inputBuffer[i]) {
-	    case ' ':
-	    case '\t' :               /* argument separators */
-		if(start != -1){
-                    args[ct] = &inputBuffer[start];    /* set up pointer */
-		    ct++;
-		}
-                inputBuffer[i] = '\0'; /* add a null char; make a C string */
-		start = -1;
-		break;
-            case '\n':                 /* should be the final char examined */
-		if (start != -1){
-		    inputBuffer[i] = '\0';
-                    args[ct] = &inputBuffer[start];
-		    ct++;
-		}
-                args[ct] = NULL; /* no more arguments to this command */
-		break;
-	    default :             /* some other character */
-		if (start == -1)
-		    start = i;
-                if (inputBuffer[i] == '&'){ // Add check for that the (&) symbol MUST be the last argument (always)
-		    *background  = 1;
-                    inputBuffer[i-1] = '\0';
-		}
-	} /* end of switch */
-     }    /* end of for */
-     args[ct] = NULL; /* just in case the input line was > 80 */
-
-     if (DEBUGGABLE) {
-	     for (i = 0; i < ct; i++)
-		printf("args %d = %s\n",i,args[i]);
-     }
-     *argsLenght = ct;
-
-
-} /* end of setup routine */
 
 void parseCommand(char *args[], int argSize) { // parseCommand() will fill the &commandLL linkedlist
     char strWillBeinserted[255] = "";
@@ -675,9 +543,67 @@ void parseCommand(char *args[], int argSize) { // parseCommand() will fill the &
     }
 }
 
+void customExecl(struct arrToken arrtok) {
+	pid_t childpid;
+	char binaryName[255];
+	memset(binaryName,'\0',sizeof(binaryName));
+	strcpy(binaryName, arrtok.elements[0]); // get binary name which will be executed and store it on binaryName
+	
+	// find that binary's path and store it on binaryPath
+	char binaryPath[255];
+	memset(binaryPath,'\0',sizeof(binaryPath));
+	strcpy(binaryPath,getBinaryPath(binaryName));
+
+	if (strlen(binaryPath) > 0) { // check if getBinaryPath() method returns non-empty binary path string
+		// execute it
+		execl(binaryPath, binaryName, arrtok.elements[1], arrtok.elements[2], 
+						arrtok.elements[3], arrtok.elements[4],
+						arrtok.elements[5], arrtok.elements[6],
+						arrtok.elements[7], arrtok.elements[8],
+						arrtok.elements[9], arrtok.elements[10],
+						arrtok.elements[11], arrtok.elements[12],
+						arrtok.elements[13], arrtok.elements[14],
+						arrtok.elements[15], arrtok.elements[16],
+						arrtok.elements[17], arrtok.elements[18],
+						arrtok.elements[19], arrtok.elements[20],
+						arrtok.elements[21], arrtok.elements[22],
+						arrtok.elements[23], arrtok.elements[24],
+						arrtok.elements[25], arrtok.elements[26],
+						arrtok.elements[27], arrtok.elements[28],
+						arrtok.elements[29], arrtok.elements[30],
+						arrtok.elements[31], arrtok.elements[32],
+						arrtok.elements[33], arrtok.elements[34],
+						arrtok.elements[35], arrtok.elements[36],
+						arrtok.elements[37], arrtok.elements[38],
+						arrtok.elements[39], arrtok.elements[40],
+						arrtok.elements[41], arrtok.elements[42],
+						arrtok.elements[43], arrtok.elements[44],
+						arrtok.elements[45], arrtok.elements[46],
+						arrtok.elements[47], arrtok.elements[48],
+						arrtok.elements[49], arrtok.elements[50],
+						arrtok.elements[51], arrtok.elements[52],
+						arrtok.elements[53], arrtok.elements[54],
+						arrtok.elements[55], arrtok.elements[56],
+						arrtok.elements[57], arrtok.elements[58],
+						arrtok.elements[59], arrtok.elements[60],
+						arrtok.elements[61], arrtok.elements[62],
+						arrtok.elements[63], arrtok.elements[64],
+						arrtok.elements[65], arrtok.elements[66],
+						arrtok.elements[67], arrtok.elements[68],
+						arrtok.elements[69], arrtok.elements[70],
+						arrtok.elements[71], arrtok.elements[72],
+						arrtok.elements[73], arrtok.elements[74],
+						arrtok.elements[75], arrtok.elements[76],
+						arrtok.elements[77], arrtok.elements[78],
+						arrtok.elements[79]);
+	} else {
+		perror("Failed to exec, binary is not found on PATH environment\n");
+	}
+}
+
 void execute(Cmd **header) {  // execute() will execute commands in the &commandLL linkedlist
-	Cmd *test;
-	test = *header;
+	Cmd *cmdIterPtr;
+	cmdIterPtr = *header;
 	int sizeOfCmdList = sizeOfLL(&commandLL);
 
 	pid_t childpid = 0;
@@ -693,14 +619,14 @@ void execute(Cmd **header) {  // execute() will execute commands in the &command
 		char command[255];
 		char fInPath[255];
 		char fOutPath[255];
-		strcpy(command,test->cmd);
-		strcpy(fInPath,test->inputFilePath);
-		strcpy(fOutPath,test->outputFilePath);
-		int pipeReq = test->pipeRequired;
-		int fIOType = test->fileIOType;
+		strcpy(command,cmdIterPtr->cmd);
+		strcpy(fInPath,cmdIterPtr->inputFilePath);
+		strcpy(fOutPath,cmdIterPtr->outputFilePath);
+		int pipeReq = cmdIterPtr->pipeRequired;
+		int fIOType = cmdIterPtr->fileIOType;
 
 		if ((childpid = fork()) == 0) { // if its child break the loop and exit, otherwise if its main process(parent), dont break
-			if (i == 0) { // first process first cmd
+			if (i == 0) { // first process, first cmd
 				if (fIOType == 1) {
 					int fileDesc = openFile(fInPath, 0); // read
 					dup2(fileDesc, STDIN_FILENO);
@@ -717,18 +643,18 @@ void execute(Cmd **header) {  // execute() will execute commands in the &command
 					int fileDesc = openFile(fOutPath, 0); // write-err
 					dup2(fileDesc, STDERR_FILENO);
 					close(fileDesc);
-				} else 	if (fIOType == 5) { // in the above read-write modes openFiles() with 1==read-write CREATE_FLAGS
-					int fileDesc1 = openFile(fInPath, 1);
+				} else 	if (fIOType == 5) {
+					int fileDesc1 = openFile(fInPath, 0);
 					dup2(fileDesc1, STDIN_FILENO);
 					close(fileDesc1);
 					int fileDesc2 = openFile(fOutPath, 1); // read and write-overwrite
 					dup2(fileDesc2, STDOUT_FILENO);
 					close(fileDesc2);
 				} else 	if (fIOType == 6) {
-					int fileDesc1 = openFile(fInPath, 1);
+					int fileDesc1 = openFile(fInPath, 0);
 					dup2(fileDesc1, STDIN_FILENO);
 					close(fileDesc1);
-					int fileDesc2 = openFile(fOutPath, 1); // read and write-append
+					int fileDesc2 = openFile(fOutPath, 2); // read and write-append
 					dup2(fileDesc2, STDOUT_FILENO);
 					close(fileDesc2);
 				} else 	if (fIOType == 7) {
@@ -746,7 +672,7 @@ void execute(Cmd **header) {  // execute() will execute commands in the &command
 					close(pipeFd[pipeCounter][0]);
 					close(pipeFd[pipeCounter][1]);
 				}
-			} else if (i == sizeOfCmdList-1) { // last process last cmd
+			} else if (i == sizeOfCmdList-1) { // last process, last cmd
 				// inputunu bir önceki pipe'in inputuna kopyala
 				dup2(pipeFd[pipeCounter-1][0], STDIN_FILENO);
 				// close
@@ -775,20 +701,99 @@ void execute(Cmd **header) {  // execute() will execute commands in the &command
 				close(pipeFd[pipeCounter-1][0]);
 				close(pipeFd[pipeCounter-1][1]);
 			}
-			executeCmd(strToArr(trimWhiteSpace(command)));
+			customExecl(strToArr(trimWhiteSpace(command))); // trim trailing and ending whitespaces of 'command' string before executing(whitespaces are added on parseCommand())
 			perror("Failed to execute command in executeCmd(...)\n");
 		} else if (childpid == -1) {
 			perror("Error while creating child process\n");
 		} else { // parent process
-			if(i > 0){
+			if (i > 0) { // close unnecessary "(pipeCounter-1)th pipe" also on parent process, because both childs and parent processes have pipeFd pipes array
 				close(pipeFd[pipeCounter-1][0]);
 				close(pipeFd[pipeCounter-1][1]);
 			}
 			pipeCounter++;
-			test = test->next; // iterate to next command in commandLL linkedlist
+			cmdIterPtr = cmdIterPtr->next; // iterate to next command in commandLL linkedlist
 		}
 	}
 	wait(NULL);
+}
+
+/* The setup function below will not return any value, but it will just: read
+   in the next command line; separate it into distinct arguments (using blanks as
+   delimiters), and set the args array entries to point to the beginning of what
+   will become null-terminated, C-style strings. */
+
+void setup(char inputBuffer[], char *args[],int *argsLenght, int *background, int isStrSupplied) {
+    int length = 0; // # of characters in the command line
+    int i = 0;      // loop index for accessing inputBuffer array
+    int start = -1;  // index where beginning of next command parameter is
+    int ct = 0;     // index of where to place the next parameter into args[]
+        
+    if (isStrSupplied == 1) {
+	// process supplied string
+	length = strlen(inputBuffer);
+    } else {
+        // read what the user enters on the command line
+	length = read(STDIN_FILENO,inputBuffer,MAX_LINE);  
+    }
+
+    // 0 is the system predefined file descriptor for stdin (standard input),
+    // which is the user's screen in this case. inputBuffer by itself is the
+    // same as &inputBuffer[0], i.e. the starting address of where to store
+    // the command that is read, and length holds the number of characters
+    // read in. inputBuffer is not a null terminated C-string.
+
+    if (length == 0) {
+        exit(0);            // ^d was entered, end of user command stream
+    }
+
+    // the signal interrupted the read system call
+
+    // if the process is in the read() system call, read returns -1
+    // However, if this occurs, errno is set to EINTR. We can check this  value
+    // and disregard the -1 value */
+
+    if ((length < 0) && (errno != EINTR)) {
+        perror("error reading the command");
+	exit(-1);           /* terminate with error code of -1 */
+    }
+
+    for (i = 0; i < length; i++) { /* examine every character in the inputBuffer */
+        switch (inputBuffer[i]) {
+	    case ' ':
+	    case '\t' :               /* argument separators */
+		if(start != -1) {
+                    args[ct] = &inputBuffer[start];    /* set up pointer */
+		    ct++;
+		}
+                inputBuffer[i] = '\0'; /* add a null char; make a C string */
+		start = -1;
+		break;
+            case '\n':                 /* should be the final char examined */
+		if (start != -1) {
+		    inputBuffer[i] = '\0';
+                    args[ct] = &inputBuffer[start];
+		    ct++;
+		}
+                args[ct] = NULL; /* no more arguments to this command */
+		break;
+	    default :             /* some other character */
+		if (start == -1) {
+		    start = i;
+                }
+                if (inputBuffer[i] == '&') { // Add check for that the (&) symbol MUST be the last argument (always)
+		    *background  = 1;
+                    inputBuffer[i-1] = '\0';
+		}
+	} /* end of switch */
+     }    /* end of for */
+     args[ct] = NULL; /* just in case the input line was > 80 */
+
+     if (DEBUGGABLE) {
+	     for (i = 0; i < ct; i++)
+		printf("args %d = %s\n",i,args[i]);
+     }
+
+     *argsLenght = ct; // save argument size
 }
 
 void checkBeforeExit() {
@@ -796,21 +801,19 @@ void checkBeforeExit() {
 	isShellRunning = 0;
 }
 
-int main(void)
-{
+int main(void) {
+	AliasElement *aliasIterPtr;
 	struct sigaction ctrlCaction;
 	ctrlCaction.sa_handler = &checkBeforeExit;
 	ctrlCaction.sa_flags = 0;
+	char inputBuffer[MAX_LINE]; //buffer to hold command entered
+	int background; // equals 1 if a command is followed by '&'
+	char *args[MAX_LINE/2 + 1]; //command line arguments
 
 	if (sigemptyset(&ctrlCaction.sa_mask) == -1 || sigaction(SIGINT, &ctrlCaction, NULL) == -1) { // initialize ctrl-c(SIGINT) signal catcher
 		perror("Failed to initialize signal set");
 		exit(1);
 	}
-
-	AliasElement *test1;
-	char inputBuffer[MAX_LINE]; //buffer to hold command entered
-	int background; // equals 1 if a command is followed by '&'
-	char *args[MAX_LINE/2 + 1]; //command line arguments
 
 	while (isShellRunning) {
 		int argumentSize = 0;
@@ -846,16 +849,16 @@ int main(void)
 		}
 
 		if (isAliasDetectRequired == 1) {
-			// ******* ALIAS DETECTION AND HANDLING START ********* 
+			///////// ALIAS DETECTION AND HANDLING BEGIN ////////////
 			int hasAlias = 0;
 			for (int i = 0; i < argumentSize; i++) {
-				test1 = aliasLL;
-				while (test1 != NULL) {
-					if (!strcmp(args[i], test1->fakeCmd)) {
-						strcpy(args[i], test1->realCmd); // replace fakeCmd with the realCmd in argument array
+				aliasIterPtr = aliasLL;
+				while (aliasIterPtr != NULL) {
+					if (!strcmp(args[i], aliasIterPtr->fakeCmd)) {
+						strcpy(args[i], aliasIterPtr->realCmd); // replace fakeCmd with the realCmd in argument array
 						hasAlias = 1;
 					}
-					test1 = test1->next;
+					aliasIterPtr = aliasIterPtr->next;
 				}
 			}
 			if (hasAlias == 1) {
@@ -867,7 +870,7 @@ int main(void)
 				inputBuffer[sizeOfNewInputBuffer] = '\0'; // put termination-char to make it C-string
 				setup(inputBuffer, args, &argumentSize, &background, 1); // pass that string to setup() func again
 			}
-			// ******* ALIAS DETECTION AND HANDLING END *********
+			///////// ALIAS DETECTION AND HANDLING END ////////////
 		}
 
 		// update cmdSize again (after handling aliased commands) 
