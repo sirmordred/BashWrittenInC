@@ -15,6 +15,7 @@
 
 #define DEBUGGABLE 1
 #define MAX_LINE 80 /* 80 chars per line, per command, should be enough. */
+int isShellRunning = 1;
 
 struct arrToken {
     char *elements[80];
@@ -257,7 +258,7 @@ char *hasAlias(char cmd[255]) {
 }
 
 // it parses PATH and gets binary paths and then search given binName in their folder, if it finds return binPath(e.g usr/bin)
-char *hasCmd(char binName[255]) {
+char *getBinaryPath(char binName[255]) {
     char *binPathStr = (char *) malloc(sizeof(char) * 255); // to make it pass-by-value (don't modify given parameter!)
     memset(binPathStr, '\0', sizeof(binPathStr));
     strcpy(binPathStr,binName);
@@ -438,9 +439,9 @@ void executeCmd(struct arrToken arrtok) {
 	// find that binary's path and store it on binaryPath
 	char binaryPath[255];
 	memset(binaryPath,'\0',sizeof(binaryPath));
-	strcpy(binaryPath,hasCmd(binaryName));
+	strcpy(binaryPath,getBinaryPath(binaryName));
 
-	if (binaryPath != NULL) {
+	if (strlen(binaryPath) > 0) { // check if getBinaryPath() method returns non-empty binary path string
 		// execute it
 		execl(binaryPath, binaryName, arrtok.elements[1], arrtok.elements[2], 
 						arrtok.elements[3], arrtok.elements[4],
@@ -483,7 +484,6 @@ void executeCmd(struct arrToken arrtok) {
 						arrtok.elements[77], arrtok.elements[78],
 						arrtok.elements[79]);
 	} else {
-		// TODO given binary not found in PATH environments, error out
 		perror("Failed to exec, binary is not found on PATH environment\n");
 	}
 }
@@ -565,7 +565,7 @@ void setup(char inputBuffer[], char *args[],int *argsLenght, int *background, in
 
 } /* end of setup routine */
 
-void parseCommand(char *args[], int argSize){
+void parseCommand(char *args[], int argSize) { // parseCommand() will fill the &commandLL linkedlist
     char strWillBeinserted[255] = "";
     for (int i = 0; i < argSize; i++) {
         if (!strcmp(args[i],"<")) {
@@ -657,7 +657,7 @@ void parseCommand(char *args[], int argSize){
     }
 }
 
-void execute(Cmd **header) {
+void execute(Cmd **header) {  // execute() will execute commands in the &commandLL linkedlist
 	Cmd *test;
 	test = *header;
 	int sizeOfCmdList = sizeOfLL(&commandLL);
@@ -671,6 +671,7 @@ void execute(Cmd **header) {
 			pipe(pipeFd[pipeCounter]);
 		}
 
+		// copy data of the commandLL linkedlist's node into the function variables
 		char command[255];
 		char fInPath[255];
 		char fOutPath[255];
@@ -703,7 +704,7 @@ void execute(Cmd **header) {
 					dup2(fileDesc1, STDIN_FILENO);
 					close(fileDesc1);
 					int fileDesc2 = openFile(fOutPath, 1); // read and write-overwrite
-					dup2(fileDesc1, STDOUT_FILENO);
+					dup2(fileDesc2, STDOUT_FILENO);
 					close(fileDesc2);
 				} else 	if (fIOType == 6) {
 					int fileDesc1 = openFile(fInPath, 1);
@@ -772,15 +773,15 @@ void execute(Cmd **header) {
 	wait(NULL);
 }
 
-
-int checkBeforeExit() {
+void checkBeforeExit() {
 	// TODO Check if there is atleast one background process, if so, then don't exit, just warn the user
+	isShellRunning = 0;
 }
 
 int main(void)
 {
 	struct sigaction ctrlCaction;
-	ctrlCaction.sa_handler = checkBeforeExit;
+	ctrlCaction.sa_handler = &checkBeforeExit;
 	ctrlCaction.sa_flags = 0;
 
 	if (sigemptyset(&ctrlCaction.sa_mask) == -1 || sigaction(SIGINT, &ctrlCaction, NULL) == -1) { // initialize ctrl-c(SIGINT) signal catcher
@@ -788,11 +789,11 @@ int main(void)
 		exit(1);
 	}
 
-	int isShellRunning = 1;
 	AliasElement *test1;
 	char inputBuffer[MAX_LINE]; //buffer to hold command entered
 	int background; // equals 1 if a command is followed by '&'
 	char *args[MAX_LINE/2 + 1]; //command line arguments
+
 	while (isShellRunning) {
 		int argumentSize = 0;
 		background = 0; // clear variable
@@ -800,12 +801,14 @@ int main(void)
 			args[t] = NULL; // NULL-ify all the elements of array (initialization)
 		}
 		memset(inputBuffer,'\0',sizeof(inputBuffer)); // clear variable
-		printf("myshell: ");
-		fflush(stdout);
-		//setup() calls exit() when Control-D is entered
+
+		printf("myshell: "); // print cursor
+
+		fflush(stdout); // setup() which initializes arguments for us, it will calls exit() when Control-D is entered
 		fflush(stdin);
 		setup(inputBuffer, args, &argumentSize, &background, 0);
 		fflush(stdin);
+
 		// the steps are:
 		// (1) fork a child process using fork()
 		// (2) the child process will invoke execv()
@@ -888,33 +891,30 @@ int main(void)
 							// TODO make background process foreground (one-by-one)
 						} else {
 							// other commands, bridge it to exec function
-							executeCmd(strToArr(userEnteredInput));
+							parseCommand(args, argumentSize);
+							execute(&commandLL);
+							// TODO delete whole &commandLL linkedlist
 						}
 					} else {
 						//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
 						// we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>')
 						// so we DONT NEED any pipe or redirect, 
 						// so just bridge it to exec function 
-						executeCmd(strToArr(userEnteredInput));
+						parseCommand(args, argumentSize);
+						execute(&commandLL);
+						// TODO delete whole &commandLL linkedlist
 					}
-				} else if (cmdSize == 2) {
-					// it means we have exactly=1 delimiter('<', '>', '|', '>>', '2>') 
-					// so piping/duping is required
-					// TODO we NEED piping or redirecting
-					
 				} else {
-					// it means we have more than>1 delimiter('<', '>', '|', '>>', '2>') 
+					// it means we have exactly=1 or more than>1 delimiter('<', '>', '|', '>>', '2>') 
 					// so piping/duping is required
 					// TODO we NEED piping or redirecting
+					parseCommand(args, argumentSize);
+					execute(&commandLL);
+					// TODO delete whole &commandLL linkedlist
 				}
 			}
 		}
 	}
-	insertCommand(&commandLL,"sort -n","file1.txt","",1,1);
-	insertCommand(&commandLL,"wc","","file2.txt",0,2);
-
-
-
 
 	return 0;
 }
