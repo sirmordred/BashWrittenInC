@@ -911,7 +911,7 @@ int main(void)
 							// other commands, bridge it to exec function
 							parseCommand(args, argumentSize);
 							execute(&commandLL);
-							delete(&commandLL);
+							deleteLL(&commandLL);
 						}
 					} else {
 						//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
@@ -920,7 +920,7 @@ int main(void)
 						// so just bridge it to exec function 
 						parseCommand(args, argumentSize);
 						execute(&commandLL);
-						delete(&commandLL);
+						deleteLL(&commandLL);
 					}
 				} else {
 					// it means we have exactly=1 or more than>1 delimiter('<', '>', '|', '>>', '2>') 
@@ -928,7 +928,7 @@ int main(void)
 					// we NEED piping or redirecting
 					parseCommand(args, argumentSize);
 					execute(&commandLL);
-					delete(&commandLL);
+					deleteLL(&commandLL);
 				}
 			}
 		}
