@@ -19,48 +19,55 @@
 #define CREATE_MODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH) 
 
 #define MAX_LINE 80 /* 80 chars per line, per command, should be enough. */
-int isShellRunning = 1;
+#define DEBUGGABLE 0
 
-#define DEBUGGABLE 1
+int isShellRunning = 1;
+pid_t foregroundProcPid; // pid value of currently running foreground process (we can have only one fg process at the same time)
+pid_t backgroundProcPidArr[80]; // pid value array of background processes (we can have multiple bg processes at the same time)
 
 struct arrToken {
     char *elements[80];
     int elementsSize;
 };
 
-struct cmdNode {
+struct nodeCmd {
     char cmd[255];
     char inputFilePath[255];
     char outputFilePath[255];
     int pipeRequired;
+    /* 0 FOR do not pipe
+       1 FOR pipe to next child
+    */
     int fileIOType;
-    struct cmdNode *next;
+    /* fileIOType:
+	0 do nothing
+	1 FOR read file
+	2 FOR write-overwrite file
+	3 FOR write-append file
+	4 FOR write-stderr file
+	5 FOR read and write-overwrite
+	6 FOR read and write-append
+	7 FOR read and write-stderr
+     */
+    struct nodeCmd *next;
 };
-typedef struct cmdNode Cmd;
-Cmd *commandLL = NULL;
-
-struct nodeProcess {
-    pid_t pidVal; // pid value of that process
-    int type; // 0 == FOREGROUND, 1 == BACKGROUND 
-    struct nodeProcess *next;
-};
-typedef struct nodeProcess ProcessElement;
-ProcessElement *processLL = NULL;
+typedef struct nodeCmd Cmd;
 
 struct nodeAlias {
     char fakeCmd[255];
     char realCmd[255];
     struct nodeAlias *next;
 };
-typedef struct nodeAlias AliasElement;
-AliasElement *aliasLL = NULL;
+typedef struct nodeAlias Alias;
 
-char *trimWhiteSpace(char *str)
-{
+Cmd *commandLL = NULL;
+Alias *aliasLL = NULL;
+
+char *trimWhiteSpace(char *str) {
     char *end;
 
     // Trim leading space
-    while(isspace((unsigned char)*str)) {
+    while(isspace((unsigned char) *str)) {
         str++;
     }
 
@@ -69,7 +76,7 @@ char *trimWhiteSpace(char *str)
 
     // Trim trailing space
     end = str + strlen(str) - 1;
-    while(end > str && isspace((unsigned char)*end)) {
+    while(end > str && isspace((unsigned char) *end)) {
         end--;
     }
 
@@ -79,7 +86,7 @@ char *trimWhiteSpace(char *str)
     return str;
 }
 
-void trimQuotes(char *inpStr) {
+void trimQuote(char *inpStr) {
 	int firstQuoteIndex = -1;
 	int secQuoteIndex = -1;
 	for (int i = 0; i < strlen(inpStr); i++) {
@@ -100,6 +107,7 @@ void trimQuotes(char *inpStr) {
 				inpStr[j-1] = '\0';
 			} else {
 				inpStr[j] = inpStr[j+1];
+
 			}
 		}
 	}
@@ -134,6 +142,21 @@ void listCommands(Cmd **header) {
                 tempPtr->cmd,tempPtr->inputFilePath,tempPtr->outputFilePath,tempPtr->pipeRequired,tempPtr->fileIOType);
         tempPtr = tempPtr->next;
     }
+}
+
+int checkFileInputOfCmds(Cmd **header) {
+    Cmd *tempPtr;
+    tempPtr = *header;
+    while (tempPtr != NULL) {
+	// check if inputfilePath is not empty(strlen...) AND file is not exist
+	if (strlen(tempPtr->inputFilePath) > 0 && access(tempPtr->inputFilePath, F_OK) == -1) { 
+		// it means inputFilePath is not exist so return 0 (false)
+		printf("ERROR: File %s is not exist\n",tempPtr->inputFilePath);
+		return 0;
+	}
+        tempPtr = tempPtr->next;
+    }
+    return 1;
 }
 
 int sizeOfLL(Cmd **header) {
@@ -193,37 +216,10 @@ void insertCommand(Cmd **header, char givenCmd[255], char inpFPath[255], char ou
     }
 }
 
-void insertProcess(ProcessElement **header, pid_t pidValue, int execType) // 0 == FOREGROUND, 1 == BACKGROUND
-{
-    ProcessElement *p, *temp;
-
-    // create node to insert and assign values to its fields
-    p = (ProcessElement *) malloc(sizeof(ProcessElement));
-    p->pidVal = pidValue; // copy pid value
-    p->type = execType; // copy execution type(background,foreground)
-    p->next=NULL;
-
-    // if LL empty
-    if (*header == NULL) {
-        *header=p;
-    } else {// if LL is not empty
-        // assign temp to header to point same node
-        temp = *header;
-        // iterate it until the last node
-        while (temp->next != NULL) {
-            temp = temp->next;
-        }
-
-	// add new node into last
-	temp->next = p;
-
-    }
-}
-
-void insertAlias(AliasElement **header, char fakeCmd[255], char realCmd[255])
+void insertAlias(Alias **header, char fakeCmd[255], char realCmd[255])
 {
     // check existent alias before, if it has, just update the node
-    AliasElement *tempAliasPtr;
+    Alias *tempAliasPtr;
     tempAliasPtr = *header;
     while (tempAliasPtr != NULL) {
 	if (!strcmp(tempAliasPtr->fakeCmd,fakeCmd) && !strcmp(tempAliasPtr->realCmd,realCmd)) { // same realCmd, same fakeCmd so same alias, print info to user that it has already aliased
@@ -251,10 +247,10 @@ void insertAlias(AliasElement **header, char fakeCmd[255], char realCmd[255])
         tempAliasPtr = tempAliasPtr->next;
     }
 
-    AliasElement *p, *temp;
+    Alias *p, *temp;
 
     // create node to insert and assign values to its fields
-    p = (AliasElement *) malloc(sizeof(AliasElement));
+    p = (Alias *) malloc(sizeof(Alias));
     strcpy(p->fakeCmd,fakeCmd);
     strcpy(p->realCmd,realCmd);
     p->next=NULL;
@@ -276,11 +272,11 @@ void insertAlias(AliasElement **header, char fakeCmd[255], char realCmd[255])
     }
 }
 
-void removeAlias(AliasElement **head_ref, char fakeCmd[255])
+void removeAlias(Alias **head_ref, char fakeCmd[255])
 {
     // Store head node
-    AliasElement* temp = *head_ref;
-    AliasElement *prev = NULL;
+    Alias* temp = *head_ref;
+    Alias *prev = NULL;
 
     // If head node itself holds the key to be deleted
     if (temp != NULL && !strcmp(fakeCmd,temp->fakeCmd)) {
@@ -307,7 +303,7 @@ void removeAlias(AliasElement **head_ref, char fakeCmd[255])
 }
 
 char *hasAlias(char cmd[255]) {
-    AliasElement *testPtr = aliasLL;
+    Alias *testPtr = aliasLL;
     while (testPtr != NULL) {
         if (!strncmp(cmd,testPtr->fakeCmd,strlen(cmd))) {
             return testPtr->realCmd;
@@ -317,8 +313,8 @@ char *hasAlias(char cmd[255]) {
     return NULL;
 }
 
-void list_aliased_cmds() {
-    AliasElement *testPtr;
+void listAliasedCmds() {
+    Alias *testPtr;
     testPtr = aliasLL;
     while (testPtr != NULL) {
         printf("Aliased cmd: %s Equivalent cmd: %s\n",testPtr->fakeCmd, testPtr->realCmd);
@@ -434,7 +430,7 @@ int commandSize(char *args[], int argsSize) { // it check args one-by-one
  1 for WRITE-OVERWRITE MODE
  2 for WRITE-APPEND MODE
  
- DO NOT FORGET TO CLOSE RETURNED FILE DESCRIPTOR FROM THIS FUNCTION AFTER DUPLICATING IT WITH dup2()
+ DO NOT FORGET TO CLOSE RETURNED FILE DESCRIPTOR AFTER DUPLICATING IT WITH dup2()
   ****/
 int openFile(char *filePath, int openingType) {
 	int fd = -1; // same as original open() func, it returns -1 as error by default
@@ -595,13 +591,13 @@ void customExecl(struct arrToken arrtok) {
 						arrtok.elements[73], arrtok.elements[74],
 						arrtok.elements[75], arrtok.elements[76],
 						arrtok.elements[77], arrtok.elements[78],
-						arrtok.elements[79]);
+						arrtok.elements[79], NULL);
 	} else {
 		perror("Failed to exec, binary is not found on PATH environment\n");
 	}
 }
 
-void execute(Cmd **header) {  // execute() will execute commands in the &commandLL linkedlist
+void execute(Cmd **header, int isProcessBackground) {  // execute() will execute commands in the &commandLL linkedlist
 	Cmd *cmdIterPtr;
 	cmdIterPtr = *header;
 	int sizeOfCmdList = sizeOfLL(&commandLL);
@@ -627,41 +623,41 @@ void execute(Cmd **header) {  // execute() will execute commands in the &command
 
 		if ((childpid = fork()) == 0) { // if its child break the loop and exit, otherwise if its main process(parent), dont break
 			if (i == 0) { // first process, first cmd
-				if (fIOType == 1) {
-					int fileDesc = openFile(fInPath, 0); // read
+				if (fIOType == 1) { // read
+					int fileDesc = openFile(fInPath, 0);
 					dup2(fileDesc, STDIN_FILENO);
 					close(fileDesc);
-				} else if (fIOType == 2) {
-					int fileDesc = openFile(fOutPath, 1); // write-overwrite
+				} else if (fIOType == 2) { // write-overwrite
+					int fileDesc = openFile(fOutPath, 1);
 					dup2(fileDesc, STDOUT_FILENO);
 					close(fileDesc);
-				} else 	if (fIOType == 3) {
-					int fileDesc = openFile(fOutPath, 2); // write-append
+				} else 	if (fIOType == 3) { // write-append
+					int fileDesc = openFile(fOutPath, 2);
 					dup2(fileDesc, STDOUT_FILENO);
 					close(fileDesc);
-				} else 	if (fIOType == 4) {
-					int fileDesc = openFile(fOutPath, 0); // write-err
+				} else 	if (fIOType == 4) { // write-err
+					int fileDesc = openFile(fOutPath, 0);
 					dup2(fileDesc, STDERR_FILENO);
 					close(fileDesc);
-				} else 	if (fIOType == 5) {
+				} else 	if (fIOType == 5) { // read and write-overwrite
 					int fileDesc1 = openFile(fInPath, 0);
 					dup2(fileDesc1, STDIN_FILENO);
 					close(fileDesc1);
-					int fileDesc2 = openFile(fOutPath, 1); // read and write-overwrite
+					int fileDesc2 = openFile(fOutPath, 1); 
 					dup2(fileDesc2, STDOUT_FILENO);
 					close(fileDesc2);
-				} else 	if (fIOType == 6) {
+				} else 	if (fIOType == 6) {  // read and write-append
 					int fileDesc1 = openFile(fInPath, 0);
 					dup2(fileDesc1, STDIN_FILENO);
 					close(fileDesc1);
-					int fileDesc2 = openFile(fOutPath, 2); // read and write-append
+					int fileDesc2 = openFile(fOutPath, 2);
 					dup2(fileDesc2, STDOUT_FILENO);
 					close(fileDesc2);
-				} else 	if (fIOType == 7) {
+				} else 	if (fIOType == 7) {  // read and write-err
 					int fileDesc1 = openFile(fInPath, 1);
 					dup2(fileDesc1, STDIN_FILENO);
 					close(fileDesc1);
-					int fileDesc2 = openFile(fOutPath, 1); // read and write-err
+					int fileDesc2 = openFile(fOutPath, 1);
 					dup2(fileDesc2, STDERR_FILENO);
 					close(fileDesc2);
 				}
@@ -706,15 +702,21 @@ void execute(Cmd **header) {  // execute() will execute commands in the &command
 		} else if (childpid == -1) {
 			perror("Error while creating child process\n");
 		} else { // parent process
-			if (i > 0) { // close unnecessary "(pipeCounter-1)th pipe" also on parent process, because both childs and parent processes have pipeFd pipes array
+			// save child process's pid value in parent process and also ONLY ALLOW one commands can have '&' background
+			// multiple commands such as 'ls -l | sort | wc' can't have '&' background processing since its meaningless
+			if (sizeOfCmdList == 1) {
+				
+			}
+			if (i > 0) { // close unnecessary "(pipeCounter-1)th pipe" also on parent process, because both childs and parent processes have pipeFd pipes array, and since we are closing parent's pipe, it is not affecting child's pipe
 				close(pipeFd[pipeCounter-1][0]);
 				close(pipeFd[pipeCounter-1][1]);
 			}
+			waitpid(childpid, NULL, 0); // wait childs one by one (in simplefan) TODO if its one command, allow background processing, so if its background, dont wait
 			pipeCounter++;
 			cmdIterPtr = cmdIterPtr->next; // iterate to next command in commandLL linkedlist
 		}
 	}
-	wait(NULL);
+	
 }
 
 int isRedPipDelimiter(char *str) { // it checks if given string is equal to redirect/pipe delimiters ('<', '>', '>>', '2>', '|')
@@ -733,125 +735,137 @@ int isRedPipDelimiter(char *str) { // it checks if given string is equal to redi
 
 // It returns 1 if given user entered command is correct, otherwise returns 0
 int setup(char inputBuffer[], char *args[],int *argsLenght, int *background, int isStrSupplied) {
-    int ret = 1; // return value, default is 1 (so given cmd is correct)
-    int length = 0; // # of characters in the command line
-    int i = 0;      // loop index for accessing inputBuffer array
-    int start = -1;  // index where beginning of next command parameter is
-    int ct = 0;     // index of where to place the next parameter into args[]
-        
-    if (isStrSupplied == 1) {
-	// process supplied string
-	length = strlen(inputBuffer);
-    } else {
-        // read what the user enters on the command line
-	length = read(STDIN_FILENO,inputBuffer,MAX_LINE);  
-    }
+	int ret = 1; // return value, default is 1 (so given cmd is correct)
+	int length = 0; // # of characters in the command line
+	int i = 0;      // loop index for accessing inputBuffer array
+	int start = -1;  // index where beginning of next command parameter is
+	int ct = 0;     // index of where to place the next parameter into args[]
 
-    // 0 is the system predefined file descriptor for stdin (standard input),
-    // which is the user's screen in this case. inputBuffer by itself is the
-    // same as &inputBuffer[0], i.e. the starting address of where to store
-    // the command that is read, and length holds the number of characters
-    // read in. inputBuffer is not a null terminated C-string.
+	if (isStrSupplied == 1) {
+		// process supplied string
+		length = strlen(inputBuffer);
+	} else {
+		// read what the user enters on the command line
+		length = read(STDIN_FILENO,inputBuffer,MAX_LINE);  
+	}
 
-    if (length == 0) {
-        exit(0);            // ^d was entered, end of user command stream
-    }
+	// 0 is the system predefined file descriptor for stdin (standard input),
+	// which is the user's screen in this case. inputBuffer by itself is the
+	// same as &inputBuffer[0], i.e. the starting address of where to store
+	// the command that is read, and length holds the number of characters
+	// read in. inputBuffer is not a null terminated C-string.
 
-    // the signal interrupted the read system call
+	if (length == 0) {
+		exit(0);            // ^d was entered, end of user command stream
+	}
 
-    // if the process is in the read() system call, read returns -1
-    // However, if this occurs, errno is set to EINTR. We can check this  value
-    // and disregard the -1 value */
+	// the signal interrupted the read system call
 
-    if ((length < 0) && (errno != EINTR)) {
-        perror("error reading the command");
-	exit(-1);           /* terminate with error code of -1 */
-    }
+	// if the process is in the read() system call, read returns -1
+	// However, if this occurs, errno is set to EINTR. We can check this  value
+	// and disregard the -1 value */
 
-    for (i = 0; i < length; i++) { /* examine every character in the inputBuffer */
-        switch (inputBuffer[i]) {
-	    case ' ':
-	    case '\t' :               /* argument separators */
-		if(start != -1) {
-                    args[ct] = &inputBuffer[start];    /* set up pointer */
-		    ct++;
+	if ((length < 0) && (errno != EINTR)) {
+		perror("error reading the command");
+		exit(-1);           /* terminate with error code of -1 */
+	}
+
+	for (i = 0; i < length; i++) { /* examine every character in the inputBuffer */
+		switch (inputBuffer[i]) {
+		    case ' ':
+		    case '\t' :               /* argument separators */
+			if(start != -1) {
+			    args[ct] = &inputBuffer[start];    /* set up pointer */
+			    ct++;
+			}
+			inputBuffer[i] = '\0'; /* add a null char; make a C string */
+			start = -1;
+			break;
+		    case '\n':                 /* should be the final char examined */
+			if (start != -1) {
+			    inputBuffer[i] = '\0';
+			    args[ct] = &inputBuffer[start];
+			    ct++;
+			}
+			args[ct] = NULL; /* no more arguments to this command */
+			break;
+		    default :             /* some other character */
+			if (start == -1) {
+			    start = i;
+			}
+		} /* end of switch */
+	}    /* end of for */
+	args[ct] = NULL; /* just in case the input line was > 80 */
+
+	// ERROR CHECK, check if redirect/pipe delimiters is not on 1sth arg and last arg (çünkü sağı solu dolu olması gerek)
+	if (args[0] != NULL) {
+		if (isRedPipDelimiter(args[0]) || isRedPipDelimiter(args[ct - 1])) {
+			ret = 0;
 		}
-                inputBuffer[i] = '\0'; /* add a null char; make a C string */
-		start = -1;
-		break;
-            case '\n':                 /* should be the final char examined */
-		if (start != -1) {
-		    inputBuffer[i] = '\0';
-                    args[ct] = &inputBuffer[start];
-		    ct++;
+	}
+
+	if (ret == 1) { // if cmd is still correct, test next error check
+		// 2nd ERROR CHECK, check if 2 redirect/pipe delimiters ('<', '>', '>>', '2>', '|') are not successive(peşpeşe)
+		for (i = 0; i < ct; i++) {
+			if (i + 1 < ct) {
+				if (isRedPipDelimiter(args[i]) && isRedPipDelimiter(args[i + 1])) {
+					ret = 0;
+				}
+		    	}
 		}
-                args[ct] = NULL; /* no more arguments to this command */
-		break;
-	    default :             /* some other character */
-		if (start == -1) {
-		    start = i;
-                }
-	} /* end of switch */
-     }    /* end of for */
-     args[ct] = NULL; /* just in case the input line was > 80 */
-	
-    // ERROR CHECK, check if redirect/pipe delimiters is not on 1sth arg and last arg (çünkü sağı solu dolu olması gerek)
-    if (args[0] != NULL) {
-        if (isRedPipDelimiter(args[0]) || isRedPipDelimiter(args[ct - 1])) {
-            ret = 0;
-        }
-    }
+	}
 
-    if (ret == 1) { // if cmd is still correct, test next error check
-        // 2nd ERROR CHECK, check if 2 redirect/pipe delimiters ('<', '>', '>>', '2>', '|') are not successive(peşpeşe)
-        for (i = 0; i < ct; i++) {
-            if (i + 1 < ct) {
-                if (isRedPipDelimiter(args[i]) && isRedPipDelimiter(args[i + 1])) {
-                    ret = 0;
-                }
-            }
-        }
-    }
+	// Check background processing of childs
+	if (!strcmp(args[ct - 1], "&")) { // if last argument is equal to "&"
+		args[--ct] = NULL; // both decrease ct and NULL (so delete) arg which contains "&"
+		*background = 1; // set background to 1
+	}
 
-    if (ret == 1) { // if cmd is still correct, test next error check
-        // 3rd ERROR CHECK, check if atleast one arg is equal to "&" and its last argument
-        for (i = 0; i < ct; i++) {
-            if (!strcmp(args[i], "&")) { // its equal to "&"
-                if (i == ct - 1) { // "&" is on last element (correct input command)
-                    args[--ct] = NULL; // both decrease ct and NULL (so delete) arg which contains "&"
-                    *background = 1; // set background to 1
-                    ret = 1;
-                    break;
-                } else { // "&" is not on last element (wrong input command)
-                    ret = 0;
-                    break;
-                }
-            }
-        }
-    }
-
-     if (DEBUGGABLE) {
+	if (DEBUGGABLE) {
 	     for (i = 0; i < ct; i++)
 		printf("args %d = %s\n",i,args[i]);
-     }
+	}
 
-     *argsLenght = ct; // save argument size
-	
-    return ret;
+	*argsLenght = ct; // save argument size
+
+	return ret;
 }
 
 void checkBeforeExit() {
 	// TODO Check if there is atleast one background process, if so, then don't exit, just warn the user
+	
 	isShellRunning = 0;
 }
 
+int detectAliasAndReplaceArgs(char inpBuffer[], char *argArr[], int argArrSize) { // replace all fakeCmd arguments with real equivalent cmds
+	Alias *aliasIterPtr;
+	int hasAlias = 0;
+	for (int i = 0; i < argArrSize; i++) {
+		aliasIterPtr = aliasLL;
+		while (aliasIterPtr != NULL) {
+			if (!strcmp(argArr[i], aliasIterPtr->fakeCmd)) {
+				strcpy(argArr[i], aliasIterPtr->realCmd); // replace fakeCmd with the realCmd in argument array
+				hasAlias = 1;
+			}
+			aliasIterPtr = aliasIterPtr->next;
+		}
+	}
+	if (hasAlias == 1) {
+		char *newInputBuffer = arrToStr(argArr, argArrSize, 0, -1); // convert the new argument array to charArray(so string)
+		int sizeOfNewInputBuffer = strlen(newInputBuffer);
+		strcpy(inpBuffer,newInputBuffer); // and copy that new charArray/string into inputBuffer
+		inpBuffer[sizeOfNewInputBuffer++] = '\n'; // put \n to make it like user entered input
+		inpBuffer[sizeOfNewInputBuffer] = '\0'; // put termination-char to make it C-string
+	}
+	return hasAlias;
+}
+
 int main(void) {
-	AliasElement *aliasIterPtr;
 	struct sigaction ctrlCaction;
 	ctrlCaction.sa_handler = &checkBeforeExit;
 	ctrlCaction.sa_flags = 0;
 	char inputBuffer[MAX_LINE]; //buffer to hold command entered
-	int background; // equals 1 if a command is followed by '&'
+	int background = 0; // equals 1 if a command is followed by '&', default 0 so wait for all child to process cmd correctly
 	char *args[MAX_LINE/2 + 1]; //command line arguments
 
 	if (sigemptyset(&ctrlCaction.sa_mask) == -1 || sigaction(SIGINT, &ctrlCaction, NULL) == -1) { // initialize ctrl-c(SIGINT) signal catcher
@@ -871,7 +885,10 @@ int main(void) {
 
 		fflush(stdout); // setup() which initializes arguments for us, it will calls exit() when Control-D is entered
 		fflush(stdin);
-		setup(inputBuffer, args, &argumentSize, &background, 0);
+		if (setup(inputBuffer, args, &argumentSize, &background, 0) == 0) { // if return val is 0 (so user entered input is wrong) just continue
+			perror("ERROR: User entered command syntax is wrong, please try again");
+			continue;
+		}
 		fflush(stdin);
 
 		// the steps are:
@@ -884,37 +901,16 @@ int main(void) {
 
 		int isAliasDetectRequired = 1;
 		if (argumentSize >= 1) {
-			if (!strcmp(args[0],"alias") || !strcmp(args[0],"unalias")) {
-				// command starts with "alias ....blabla" OR "unalias ....blabla"
-				//so "alias detect operation" will not be used
-				// instead "alias add operation OR unalias remove operation" will be used
-				isAliasDetectRequired = 0;
-			}
-		}
+			if (strcmp(args[0],"alias") && strcmp(args[0],"unalias")) {
+				// if command not starts with "alias ....blabla" AND not starts with "unalias ....blabla"
+				// so  its just 'normal' command, it can have aliased commands so "alias detect&replace operation" will be used
 
-		if (isAliasDetectRequired == 1) {
-			///////// ALIAS DETECTION AND HANDLING BEGIN ////////////
-			int hasAlias = 0;
-			for (int i = 0; i < argumentSize; i++) {
-				aliasIterPtr = aliasLL;
-				while (aliasIterPtr != NULL) {
-					if (!strcmp(args[i], aliasIterPtr->fakeCmd)) {
-						strcpy(args[i], aliasIterPtr->realCmd); // replace fakeCmd with the realCmd in argument array
-						hasAlias = 1;
-					}
-					aliasIterPtr = aliasIterPtr->next;
+				///////// ALIAS DETECTION AND HANDLING BEGIN ////////////
+				if (detectAliasAndReplaceArgs(inputBuffer, args, argumentSize)) { // if it returns 1, it means it detected alias and replaced, so call setup() again with new 'inputBuffer' to reproduce new args Array
+					setup(inputBuffer, args, &argumentSize, &background, 1); // pass that string to setup() func again
 				}
+				///////// ALIAS DETECTION AND HANDLING END ////////////
 			}
-			if (hasAlias == 1) {
-				char *newInputBuffer = arrToStr(args, argumentSize, 0, -1); // convert the new argument array to charArray(so string)
-				int sizeOfNewInputBuffer = strlen(newInputBuffer);
-				char *tempStr = (char *) malloc(sizeof(char) * (sizeOfNewInputBuffer + 1)); // +1 for \n
-				strcpy(inputBuffer,newInputBuffer); // and copy that new charArray/string into inputBuffer
-				inputBuffer[sizeOfNewInputBuffer++] = '\n'; // put \n to make it like user entered input
-				inputBuffer[sizeOfNewInputBuffer] = '\0'; // put termination-char to make it C-string
-				setup(inputBuffer, args, &argumentSize, &background, 1); // pass that string to setup() func again
-			}
-			///////// ALIAS DETECTION AND HANDLING END ////////////
 		}
 
 		// update cmdSize again (after handling aliased commands) 
@@ -925,11 +921,11 @@ int main(void) {
 			if (!strcmp(args[0],"alias")) {
 				if (args[1] != NULL) {
 					if (!strcmp(args[1],"-l")) {
-						list_aliased_cmds(); // List aliased cmds
+						listAliasedCmds(); // List aliased cmds
 					} else if (argumentSize >= 3) {
 						char cmdWillBeAliased[255];
 						memset(cmdWillBeAliased, '\0', sizeof(cmdWillBeAliased));
-						strcpy(cmdWillBeAliased, arrToStr(args, argumentSize, 1, argumentSize - 1)); // make "quoted real cmd" string from args double-arr and copy it to temp string
+						strcpy(cmdWillBeAliased, arrToStr(args, argumentSize, 1, argumentSize - 1)); // make "quoted real cmd" string from args array and copy it to temp string
 						trimQuotes(cmdWillBeAliased); // trim quotes of alias cmd to get real cmd
 						if (!strcmp(cmdWillBeAliased,"alias") || !strcmp(args[argumentSize - 1], "alias")) { // don't allow aliasing "alias" command which can create problems
 							printf("You can't alias \"alias\" command\n");
@@ -957,25 +953,43 @@ int main(void) {
 						} else {
 							// other commands, bridge it to exec function
 							parseCommand(args, argumentSize);
-							execute(&commandLL);
-							deleteLL(&commandLL);
+							if (DEBUGGABLE) {
+								listCommands(&commandLL);
+							}
+							// check input file existence of commands one by one
+							if (checkFileInputOfCmds(&commandLL) == 1) {
+								// if it returns 1, so input file exist so correct so just execute cmds
+								execute(&commandLL);
+							}
+							deleteLL(&commandLL); // clear command linkedlist
 						}
 					} else {
 						//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
-						// we dont have piping/redirecting delimiters ('<', '>', '|', '>>', '2>')
-						// so we DONT NEED any pipe or redirect, 
-						// so just bridge it to exec function 
 						parseCommand(args, argumentSize);
-						execute(&commandLL);
-						deleteLL(&commandLL);
+						if (DEBUGGABLE) {
+							listCommands(&commandLL);
+						}
+						// check input file existence of commands one by one
+						if (checkFileInputOfCmds(&commandLL) == 1) {
+							// if it returns 1, so input file exist so correct so just execute cmds
+							execute(&commandLL, background);
+						}
+						deleteLL(&commandLL); // clear command linkedlist
 					}
 				} else {
 					// it means we have exactly=1 or more than>1 delimiter('<', '>', '|', '>>', '2>') 
 					// so piping/duping is required
 					// we NEED piping or redirecting
 					parseCommand(args, argumentSize);
-					execute(&commandLL);
-					deleteLL(&commandLL);
+					if (DEBUGGABLE) {
+						listCommands(&commandLL);
+					}
+					// check input file existence of commands one by one
+					if (checkFileInputOfCmds(&commandLL) == 1) {
+						// if it returns 1, so input file exist so correct so just execute cmds
+						execute(&commandLL);
+					}
+					deleteLL(&commandLL); // clear command linkedlist
 				}
 			}
 		}
