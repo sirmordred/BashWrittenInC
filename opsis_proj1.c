@@ -22,8 +22,9 @@
 #define DEBUGGABLE 0
 
 int isShellRunning = 1;
-pid_t foregroundProcPid; // pid value of currently running foreground process (we can have only one fg process at the same time)
+pid_t foregroundProcPid = -1; // pid value of currently running foreground process (we can have only one fg process at the same time)
 pid_t backgroundProcPidArr[80]; // pid value array of background processes (we can have multiple bg processes at the same time)
+int bgProcCounter = 0;
 
 struct arrToken {
     char *elements[80];
@@ -702,21 +703,35 @@ void execute(Cmd **header, int isProcessBackground) {  // execute() will execute
 		} else if (childpid == -1) {
 			perror("Error while creating child process\n");
 		} else { // parent process
-			// save child process's pid value in parent process and also ONLY ALLOW one commands can have '&' background
-			// multiple commands such as 'ls -l | sort | wc' can't have '&' background processing since its meaningless
-			if (sizeOfCmdList == 1) {
-				
-			}
 			if (i > 0) { // close unnecessary "(pipeCounter-1)th pipe" also on parent process, because both childs and parent processes have pipeFd pipes array, and since we are closing parent's pipe, it is not affecting child's pipe
 				close(pipeFd[pipeCounter-1][0]);
 				close(pipeFd[pipeCounter-1][1]);
 			}
-			waitpid(childpid, NULL, 0); // wait childs one by one (in simplefan) TODO if its one command, allow background processing, so if its background, dont wait
+			// save child process's pid value in parent process and also ONLY ALLOW one commands can have '&' background
+			// multiple commands such as 'ls -l | sort | wc' can't have '&' background processing since its meaningless
+			if (sizeOfCmdList != 1 || isProcessBackground != 1) {
+				// this block is for foreground processes
+				foregroundProcPid = childpid; // save pid of current foreground process to 'foregroundProcPid'
+				waitpid(childpid, NULL, 0); // wait childs one by one (in simplefan)
+				foregroundProcPid = -1;
+			} else {
+				// once this blocks run, it means we are executing child process in background so save its pid value to pid array
+				backgroundProcPidArr[bgProcCounter++] = childpid;
+			}
 			pipeCounter++;
 			cmdIterPtr = cmdIterPtr->next; // iterate to next command in commandLL linkedlist
 		}
 	}
 	
+}
+
+void makeBgProcessesFg() {
+	int bgProcSize = bgProcCounter;
+	for (int i = 0; i < bgProcSize; i++) {
+		foregroundProcPid = backgroundProcPidArr[i]; // since we will wait for bg process(it will become fg process), update currentFgPRocPid
+		waitpid(backgroundProcPidArr[i], NULL, 0); // wait bg process childs one by one
+		bgProcCounter--; // after waiting background proc, its no more exist so delete also from the bg process array
+	}
 }
 
 int isRedPipDelimiter(char *str) { // it checks if given string is equal to redirect/pipe delimiters ('<', '>', '>>', '2>', '|')
@@ -831,10 +846,19 @@ int setup(char inputBuffer[], char *args[],int *argsLenght, int *background, int
 	return ret;
 }
 
+void sendSigStop() {
+	if (foregroundProcPid != -1) { // check if we(parent) are currently waiting for some process(so check if there is fg process)
+		kill(foregroundProcPid, SIGSTOP);
+	}
+}
+
 void checkBeforeExit() {
-	// TODO Check if there is atleast one background process, if so, then don't exit, just warn the user
-	
-	isShellRunning = 0;
+	// Check if there is atleast one background process, if so, then don't exit, just warn the user
+	if (bgProcCounter > 0) {
+		printf("You cannot exit, there are still background processes\n");
+	} else {
+		isShellRunning = 0;
+	}
 }
 
 int detectAliasAndReplaceArgs(char inpBuffer[], char *argArr[], int argArrSize) { // replace all fakeCmd arguments with real equivalent cmds
@@ -861,14 +885,14 @@ int detectAliasAndReplaceArgs(char inpBuffer[], char *argArr[], int argArrSize) 
 }
 
 int main(void) {
-	struct sigaction ctrlCaction;
-	ctrlCaction.sa_handler = &checkBeforeExit;
-	ctrlCaction.sa_flags = 0;
+	struct sigaction ctrlZaction;
+	ctrlZaction.sa_handler = &sendSigStop;
+	ctrlZaction.sa_flags = 0;
 	char inputBuffer[MAX_LINE]; //buffer to hold command entered
 	int background = 0; // equals 1 if a command is followed by '&', default 0 so wait for all child to process cmd correctly
 	char *args[MAX_LINE/2 + 1]; //command line arguments
 
-	if (sigemptyset(&ctrlCaction.sa_mask) == -1 || sigaction(SIGINT, &ctrlCaction, NULL) == -1) { // initialize ctrl-c(SIGINT) signal catcher
+	if (sigemptyset(&ctrlZaction.sa_mask) == -1 || sigaction(SIGTSTP, &ctrlZaction, NULL) == -1) { // initialize ctrl-z(SIGSTOP) signal catcher
 		perror("Failed to initialize signal set");
 		exit(1);
 	}
@@ -926,7 +950,7 @@ int main(void) {
 						char cmdWillBeAliased[255];
 						memset(cmdWillBeAliased, '\0', sizeof(cmdWillBeAliased));
 						strcpy(cmdWillBeAliased, arrToStr(args, argumentSize, 1, argumentSize - 1)); // make "quoted real cmd" string from args array and copy it to temp string
-						trimQuotes(cmdWillBeAliased); // trim quotes of alias cmd to get real cmd
+						trimQuote(cmdWillBeAliased); // trim quotes of alias cmd to get real cmd
 						if (!strcmp(cmdWillBeAliased,"alias") || !strcmp(args[argumentSize - 1], "alias")) { // don't allow aliasing "alias" command which can create problems
 							printf("You can't alias \"alias\" command\n");
 						} else {
@@ -949,7 +973,7 @@ int main(void) {
 						} else if (!strcmp(args[0], "exit")) {
 							checkBeforeExit();
 						} else if (!strcmp(args[0], "fg")) {
-							// TODO make background process foreground (one-by-one)
+							makeBgProcessesFg();
 						} else {
 							// other commands, bridge it to exec function
 							parseCommand(args, argumentSize);
@@ -959,7 +983,7 @@ int main(void) {
 							// check input file existence of commands one by one
 							if (checkFileInputOfCmds(&commandLL) == 1) {
 								// if it returns 1, so input file exist so correct so just execute cmds
-								execute(&commandLL);
+								execute(&commandLL, background);
 							}
 							deleteLL(&commandLL); // clear command linkedlist
 						}
@@ -987,7 +1011,7 @@ int main(void) {
 					// check input file existence of commands one by one
 					if (checkFileInputOfCmds(&commandLL) == 1) {
 						// if it returns 1, so input file exist so correct so just execute cmds
-						execute(&commandLL);
+						execute(&commandLL, background);
 					}
 					deleteLL(&commandLL); // clear command linkedlist
 				}
