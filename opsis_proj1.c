@@ -64,11 +64,11 @@ typedef struct nodeAlias Alias;
 Cmd *commandLL = NULL;
 Alias *aliasLL = NULL;
 
-char *trimWhiteSpace(char *str) {
+char *trimTrailingAndEndingChar(char *str, char trimChar) {
     char *end;
 
     // Trim leading space
-    while(isspace((unsigned char) *str)) {
+    while((unsigned char) *str == trimChar) {
         str++;
     }
 
@@ -77,7 +77,7 @@ char *trimWhiteSpace(char *str) {
 
     // Trim trailing space
     end = str + strlen(str) - 1;
-    while(end > str && isspace((unsigned char) *end)) {
+    while(end > str && (unsigned char) *end == trimChar) {
         end--;
     }
 
@@ -85,33 +85,6 @@ char *trimWhiteSpace(char *str) {
     end[1] = '\0';
 
     return str;
-}
-
-void trimQuote(char *inpStr) {
-	int firstQuoteIndex = -1;
-	int secQuoteIndex = -1;
-	for (int i = 0; i < strlen(inpStr); i++) {
-		if (inpStr[i] == '"') {
-			firstQuoteIndex = i;
-			break;
-		}
-	}
-	for (int h = strlen(inpStr) - 1; h >= 0; h--) {
-		if (inpStr[h] == '"') {
-			secQuoteIndex = h;
-			break;
-		}
-	}
-	if (firstQuoteIndex != -1 && secQuoteIndex != -1) {
-		for (int j = firstQuoteIndex; j <= secQuoteIndex; j++) {
-			if (j == secQuoteIndex) { // "abc" do not swap 'c' with '"' (so secQuoteIndex - 1)
-				inpStr[j-1] = '\0';
-			} else {
-				inpStr[j] = inpStr[j+1];
-
-			}
-		}
-	}
 }
 
 int contains(char strInp[255], char delimiter[255]) {
@@ -698,7 +671,7 @@ void execute(Cmd **header, int isProcessBackground) {  // execute() will execute
 				close(pipeFd[pipeCounter-1][0]);
 				close(pipeFd[pipeCounter-1][1]);
 			}
-			customExecl(strToArr(trimWhiteSpace(command))); // trim trailing and ending whitespaces of 'command' string before executing(whitespaces are added on parseCommand())
+			customExecl(strToArr(trimTrailingAndEndingChar(command, ' '))); // trim trailing and ending whitespaces of 'command' string before executing(whitespaces are added on parseCommand())
 			perror("Failed to execute command in executeCmd(...)\n");
 		} else if (childpid == -1) {
 			perror("Error while creating child process\n");
@@ -849,6 +822,7 @@ int setup(char inputBuffer[], char *args[],int *argsLenght, int *background, int
 void sendSigStop() {
 	if (foregroundProcPid != -1) { // check if we(parent) are currently waiting for some process(so check if there is fg process)
 		kill(foregroundProcPid, SIGSTOP);
+		foregroundProcPid = -1; // since we are not waiting for that fg process anymore, set 'foregroundProcPid' to -1
 	}
 }
 
@@ -888,6 +862,7 @@ int main(void) {
 	struct sigaction ctrlZaction;
 	ctrlZaction.sa_handler = &sendSigStop;
 	ctrlZaction.sa_flags = 0;
+
 	char inputBuffer[MAX_LINE]; //buffer to hold command entered
 	int background = 0; // equals 1 if a command is followed by '&', default 0 so wait for all child to process cmd correctly
 	char *args[MAX_LINE/2 + 1]; //command line arguments
@@ -935,13 +910,11 @@ int main(void) {
 				}
 				///////// ALIAS DETECTION AND HANDLING END ////////////
 			}
-		}
 
-		// update cmdSize again (after handling aliased commands) 
-		cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
+			// update cmdSize again (after handling aliased commands) 
+			cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
-		////////////////// START EXECUTION STAGE OF COMMANDS /////////////////
-		if (argumentSize >= 1) {
+			////////////////// START EXECUTION STAGE OF COMMANDS /////////////////
 			if (!strcmp(args[0],"alias")) {
 				if (args[1] != NULL) {
 					if (!strcmp(args[1],"-l")) {
@@ -950,7 +923,7 @@ int main(void) {
 						char cmdWillBeAliased[255];
 						memset(cmdWillBeAliased, '\0', sizeof(cmdWillBeAliased));
 						strcpy(cmdWillBeAliased, arrToStr(args, argumentSize, 1, argumentSize - 1)); // make "quoted real cmd" string from args array and copy it to temp string
-						trimQuote(cmdWillBeAliased); // trim quotes of alias cmd to get real cmd
+						strcpy(cmdWillBeAliased,trimTrailingAndEndingChar(cmdWillBeAliased, '"')); // trim quotes of alias cmd to get real cmd
 						if (!strcmp(cmdWillBeAliased,"alias") || !strcmp(args[argumentSize - 1], "alias")) { // don't allow aliasing "alias" command which can create problems
 							printf("You can't alias \"alias\" command\n");
 						} else {
