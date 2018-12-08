@@ -886,16 +886,16 @@ int main(void) {
 		// otherwise it will invoke the setup() function again.
 
 		if (argumentSize >= 1) {
+			///////// ALIAS DETECTION AND HANDLING BEGIN ////////////
 			if (strcmp(args[0],"alias") && strcmp(args[0],"unalias")) {
 				// if command not starts with "alias ....blabla" AND not starts with "unalias ....blabla"
 				// so  its just 'normal' command, it can have aliased commands so "alias detect&replace operation" will be used
 
-				///////// ALIAS DETECTION AND HANDLING BEGIN ////////////
 				if (detectAliasAndReplaceArgs(inputBuffer, args, argumentSize)) { // if it returns 1, it means it detected alias and replaced, so call setup() again with new 'inputBuffer' to reproduce new args Array
 					setup(inputBuffer, args, &argumentSize, &background, 1); // pass that string to setup() func again
 				}
-				///////// ALIAS DETECTION AND HANDLING END ////////////
 			}
+			///////// ALIAS DETECTION AND HANDLING END ////////////
 
 			////////////////// START EXECUTION STAGE OF COMMANDS /////////////////
 			if (!strcmp(args[0],"alias")) {
@@ -920,27 +920,26 @@ int main(void) {
 				if (args[1] != NULL) {
 					removeAlias(&aliasLL, args[1]);
 				}
+			} else if (argumentSize == 1 && !strcmp(args[0], "clr")) {
+				system("clear");
+			} else if (argumentSize == 1 && !strcmp(args[0], "exit")) {
+				checkBeforeExit();
+			} else if (argumentSize == 1 && !strcmp(args[0], "fg")) {
+				makeBgProcessesFg();
 			} else {
-				if (argumentSize == 1 && !strcmp(args[0], "clr")) {
-					system("clear");
-				} else if (argumentSize == 1 && !strcmp(args[0], "exit")) {
-					checkBeforeExit();
-				} else if (argumentSize == 1 && !strcmp(args[0], "fg")) {
-					makeBgProcessesFg();
-				} else {
-					// other commands, bridge it to exec function
-					parseCommand(args, argumentSize);
-					if (DEBUGGABLE) {
-						listCommands(&commandLL);
-					}
-					// check input file existence of commands one by one
-					if (checkFileInputOfCmds(&commandLL) == 1) {
-						// if it returns 1, so input file exist so correct so just execute cmds
-						execute(&commandLL, background);
-					}
-					deleteLL(&commandLL); // clear command linkedlist
+				// other commands, bridge it to exec function
+				parseCommand(args, argumentSize); // fill &commandLL linkedlist by taking and parsing *args[]
+				if (DEBUGGABLE) {
+					listCommands(&commandLL);
 				}
+				// check input file existence of each commands in &commandLL linkedlist one by one
+				if (checkFileInputOfCmds(&commandLL) == 1) {
+					// if it returns 1, so input file exist so correct so just execute cmds
+					execute(&commandLL, background); // execute cmds in &commandLL linkedlist in 'simplefan' process style
+				}
+				deleteLL(&commandLL); // clear &commandLL linkedlist
 			}
+			////////////////// END EXECUTION STAGE OF COMMANDS /////////////////
 		}
 	}
 
