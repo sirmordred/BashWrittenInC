@@ -388,17 +388,6 @@ struct arrToken strToArr(char *cmdStr) {
     return retArr;
 }
 
-int commandSize(char *args[], int argsSize) { // it check args one-by-one 
-	int count = 1;
-	for (int i = 0; i < argsSize; i++) {
-		if (!strcmp(args[i],"|") || !strcmp(args[i],"<") || !strcmp(args[i],">")
-			|| !strcmp(args[i],">>") || !strcmp(args[i],"2>")) {
-			count++;
-		}
-	}
-	return count;
-}
-
 /****
  0 for READING MODE
  1 for WRITE-OVERWRITE MODE
@@ -896,9 +885,6 @@ int main(void) {
 		//			(3) if background == 0, the parent will wait,
 		// otherwise it will invoke the setup() function again.
 
-		int cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
-
-		int isAliasDetectRequired = 1;
 		if (argumentSize >= 1) {
 			if (strcmp(args[0],"alias") && strcmp(args[0],"unalias")) {
 				// if command not starts with "alias ....blabla" AND not starts with "unalias ....blabla"
@@ -910,9 +896,6 @@ int main(void) {
 				}
 				///////// ALIAS DETECTION AND HANDLING END ////////////
 			}
-
-			// update cmdSize again (after handling aliased commands) 
-			cmdSize = commandSize(args, argumentSize); // parse by '<', '>', '|', '>>', '2>'
 
 			////////////////// START EXECUTION STAGE OF COMMANDS /////////////////
 			if (!strcmp(args[0],"alias")) {
@@ -938,30 +921,14 @@ int main(void) {
 					removeAlias(&aliasLL, args[1]);
 				}
 			} else {
-				if (cmdSize == 1) { // it means we have only single command(command can be single-arg or multi-arg)
-					if (argumentSize == 1) {
-						//it means we have single-arg single command (e.g "exit", "clear" etc.)
-						if (!strcmp(args[0], "clr")) {
-							system("clear");
-						} else if (!strcmp(args[0], "exit")) {
-							checkBeforeExit();
-						} else if (!strcmp(args[0], "fg")) {
-							makeBgProcessesFg();
-						} else {
-							// other commands, bridge it to exec function
-							parseCommand(args, argumentSize);
-							if (DEBUGGABLE) {
-								listCommands(&commandLL);
-							}
-							// check input file existence of commands one by one
-							if (checkFileInputOfCmds(&commandLL) == 1) {
-								// if it returns 1, so input file exist so correct so just execute cmds
-								execute(&commandLL, background);
-							}
-							deleteLL(&commandLL); // clear command linkedlist
-						}
+					if (argumentSize == 1 && !strcmp(args[0], "clr")) {
+						system("clear");
+					} else if (argumentSize == 1 && !strcmp(args[0], "exit")) {
+						checkBeforeExit();
+					} else if (argumentSize == 1 && !strcmp(args[0], "fg")) {
+						makeBgProcessesFg();
 					} else {
-						//it means we have multi-arg single command (e.g "ls -l", "touch a.txt b.txt" etc.)
+						// other commands, bridge it to exec function
 						parseCommand(args, argumentSize);
 						if (DEBUGGABLE) {
 							listCommands(&commandLL);
@@ -973,21 +940,6 @@ int main(void) {
 						}
 						deleteLL(&commandLL); // clear command linkedlist
 					}
-				} else {
-					// it means we have exactly=1 or more than>1 delimiter('<', '>', '|', '>>', '2>') 
-					// so piping/duping is required
-					// we NEED piping or redirecting
-					parseCommand(args, argumentSize);
-					if (DEBUGGABLE) {
-						listCommands(&commandLL);
-					}
-					// check input file existence of commands one by one
-					if (checkFileInputOfCmds(&commandLL) == 1) {
-						// if it returns 1, so input file exist so correct so just execute cmds
-						execute(&commandLL, background);
-					}
-					deleteLL(&commandLL); // clear command linkedlist
-				}
 			}
 		}
 	}
