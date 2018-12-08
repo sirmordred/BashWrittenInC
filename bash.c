@@ -64,11 +64,11 @@ typedef struct nodeAlias Alias;
 Cmd *commandLL = NULL;
 Alias *aliasLL = NULL;
 
-char *trimTrailingAndEndingChar(char *str, char trimChar) {
+char *trimWhiteSpace(char *str) {
     char *end;
 
     // Trim leading space
-    while((unsigned char) *str == trimChar) {
+    while(isspace((unsigned char) *str)) {
         str++;
     }
 
@@ -77,7 +77,7 @@ char *trimTrailingAndEndingChar(char *str, char trimChar) {
 
     // Trim trailing space
     end = str + strlen(str) - 1;
-    while(end > str && (unsigned char) *end == trimChar) {
+    while(end > str && isspace((unsigned char) *end)) {
         end--;
     }
 
@@ -85,6 +85,32 @@ char *trimTrailingAndEndingChar(char *str, char trimChar) {
     end[1] = '\0';
 
     return str;
+}
+
+void trimQuote(char *inpStr) {
+	int firstQuoteIndex = -1;
+	int secQuoteIndex = -1;
+	for (int i = 0; i < strlen(inpStr); i++) {
+		if (inpStr[i] == '"') {
+			firstQuoteIndex = i;
+			break;
+		}
+	}
+	for (int h = strlen(inpStr) - 1; h >= 0; h--) {
+		if (inpStr[h] == '"') {
+			secQuoteIndex = h;
+			break;
+		}
+	}
+	if (firstQuoteIndex != -1 && secQuoteIndex != -1) {
+		for (int j = firstQuoteIndex; j <= secQuoteIndex; j++) {
+			if (j == secQuoteIndex) { // "abc" do not swap 'c' with '"' (so secQuoteIndex - 1)
+				inpStr[j-1] = '\0';
+			} else {
+				inpStr[j] = inpStr[j+1];
+			}
+		}
+	}
 }
 
 int contains(char strInp[255], char delimiter[255]) {
@@ -660,7 +686,7 @@ void execute(Cmd **header, int isProcessBackground) {  // execute() will execute
 				close(pipeFd[pipeCounter-1][0]);
 				close(pipeFd[pipeCounter-1][1]);
 			}
-			customExecl(strToArr(trimTrailingAndEndingChar(command, ' '))); // trim trailing and ending whitespaces of 'command' string before executing(whitespaces are added on parseCommand())
+			customExecl(strToArr(trimWhiteSpace(command))); // trim trailing and ending whitespaces of 'command' string before executing(whitespaces are added on parseCommand())
 			perror("Failed to execute command in executeCmd(...)\n");
 		} else if (childpid == -1) {
 			perror("Error while creating child process\n");
@@ -694,6 +720,7 @@ void makeBgProcessesFg() {
 		waitpid(backgroundProcPidArr[i], NULL, 0); // wait bg process childs one by one
 		bgProcCounter--; // after waiting background proc, its no more exist so delete also from the bg process array
 	}
+	foregroundProcPid = -1;
 }
 
 int isRedPipDelimiter(char *str) { // it checks if given string is equal to redirect/pipe delimiters ('<', '>', '>>', '2>', '|')
@@ -788,7 +815,7 @@ int setup(char inputBuffer[], char *args[],int *argsLenght, int *background, int
 				if (isRedPipDelimiter(args[i]) && isRedPipDelimiter(args[i + 1])) {
 					ret = 0;
 				}
-		    	}
+		    }
 		}
 	}
 
@@ -906,7 +933,7 @@ int main(void) {
 						char cmdWillBeAliased[255];
 						memset(cmdWillBeAliased, '\0', sizeof(cmdWillBeAliased));
 						strcpy(cmdWillBeAliased, arrToStr(args, argumentSize, 1, argumentSize - 1)); // make "quoted real cmd" string from args array and copy it to temp string
-						strcpy(cmdWillBeAliased,trimTrailingAndEndingChar(cmdWillBeAliased, '"')); // trim quotes of alias cmd to get real cmd
+						trimQuote(cmdWillBeAliased); // trim quotes of alias cmd to get real cmd
 						if (!strcmp(cmdWillBeAliased,"alias") || !strcmp(args[argumentSize - 1], "alias")) { // don't allow aliasing "alias" command which can create problems
 							printf("You can't alias \"alias\" command\n");
 						} else {
