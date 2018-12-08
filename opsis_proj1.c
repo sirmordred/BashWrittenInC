@@ -921,25 +921,25 @@ int main(void) {
 					removeAlias(&aliasLL, args[1]);
 				}
 			} else {
-					if (argumentSize == 1 && !strcmp(args[0], "clr")) {
-						system("clear");
-					} else if (argumentSize == 1 && !strcmp(args[0], "exit")) {
-						checkBeforeExit();
-					} else if (argumentSize == 1 && !strcmp(args[0], "fg")) {
-						makeBgProcessesFg();
-					} else {
-						// other commands, bridge it to exec function
-						parseCommand(args, argumentSize);
-						if (DEBUGGABLE) {
-							listCommands(&commandLL);
-						}
-						// check input file existence of commands one by one
-						if (checkFileInputOfCmds(&commandLL) == 1) {
-							// if it returns 1, so input file exist so correct so just execute cmds
-							execute(&commandLL, background);
-						}
-						deleteLL(&commandLL); // clear command linkedlist
+				if (argumentSize == 1 && !strcmp(args[0], "clr")) {
+					system("clear");
+				} else if (argumentSize == 1 && !strcmp(args[0], "exit")) {
+					checkBeforeExit();
+				} else if (argumentSize == 1 && !strcmp(args[0], "fg")) {
+					makeBgProcessesFg();
+				} else {
+					// other commands, bridge it to exec function
+					parseCommand(args, argumentSize);
+					if (DEBUGGABLE) {
+						listCommands(&commandLL);
 					}
+					// check input file existence of commands one by one
+					if (checkFileInputOfCmds(&commandLL) == 1) {
+						// if it returns 1, so input file exist so correct so just execute cmds
+						execute(&commandLL, background);
+					}
+					deleteLL(&commandLL); // clear command linkedlist
+				}
 			}
 		}
 	}
